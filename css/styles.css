@@ -1,0 +1,595 @@
+/* Normalización: hace predecibles las medidas y elimina márgenes del navegador. */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    /* Paleta y medidas reutilizables de la interfaz oscura. */
+    --bg: #0b1020;
+    --bg-soft: #121a2f;
+    --card: rgba(255, 255, 255, 0.07);
+    --card-border: rgba(255, 255, 255, 0.10);
+
+    --text: #f8fafc;
+    --text-soft: #9ca3af;
+
+    --primary: #7c3aed;
+    --primary-hover: #6d28d9;
+
+    --accent: #2563eb;
+
+    --success: #22c55e;
+    --warning: #f59e0b;
+
+    --radius: 18px;
+    --shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+body {
+    /* Las capas radiales aportan profundidad sin distraer del contenido. */
+    min-height: 100vh;
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    color: var(--text);
+
+    background:
+        radial-gradient(circle at top left, rgba(124, 58, 237, 0.25), transparent 35%),
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.18), transparent 30%),
+        linear-gradient(135deg, #080d18, #0b1020 45%, #111827);
+
+    padding: 40px 20px;
+}
+
+main {
+    width: 100%;
+    max-width: 1050px;
+    margin: 0 auto;
+
+    background: rgba(10, 15, 28, 0.72);
+    border: 1px solid var(--card-border);
+    border-radius: 28px;
+
+    padding: 45px;
+
+    box-shadow: var(--shadow);
+
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+}
+
+/* Cabecera de marca: limita el PNG sin deformarlo ni perder transparencia. */
+.brand {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 40px;
+}
+
+.brand__logo {
+    display: block;
+    width: min(680px, 92%);
+    height: clamp(105px, 18vw, 190px);
+    object-fit: contain;
+    filter: drop-shadow(0 16px 32px rgba(37, 99, 235, 0.2));
+}
+
+/* Formulario principal. */
+form {
+    display: grid;
+    grid-template-columns: 160px 1fr auto;
+    gap: 14px;
+
+    align-items: end;
+
+    margin-bottom: 30px;
+}
+
+form div {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #d1d5db;
+}
+
+input {
+    width: 100%;
+    height: 52px;
+
+    padding: 0 16px;
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+
+    background-color: rgba(255, 255, 255, 0.06);
+
+    color: var(--text);
+    font-size: 1rem;
+
+    outline: none;
+
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        background-color 0.2s ease;
+}
+
+input::placeholder {
+    color: #6b7280;
+}
+
+input:focus {
+    border-color: var(--primary);
+    background-color: rgba(255, 255, 255, 0.09);
+
+    box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.15);
+}
+
+/* Botones comparten movimiento y transiciones, pero cada tipo define su color. */
+button {
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+
+    transition:
+        transform 0.2s ease,
+        background-color 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+form button {
+    height: 52px;
+
+    padding: 0 24px;
+
+    border-radius: 14px;
+
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+
+    color: white;
+    font-weight: 700;
+    font-size: 0.95rem;
+
+    box-shadow: 0 10px 30px rgba(124, 58, 237, 0.25);
+}
+
+form button:hover {
+    transform: translateY(-2px);
+
+    box-shadow: 0 14px 35px rgba(124, 58, 237, 0.35);
+}
+
+form button:active {
+    transform: translateY(0);
+}
+
+/* Cuadrícula de resultados devuelta por TMDB. */
+#search-results {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22px;
+
+    margin-top: 28px;
+}
+
+.movie-option {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+
+    background: rgba(255, 255, 255, 0.05);
+
+    color: var(--text);
+
+    text-align: left;
+
+    backdrop-filter: blur(10px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+.movie-option:hover {
+    transform: translateY(-7px);
+
+    border-color: rgba(124, 58, 237, 0.7);
+
+    background: rgba(124, 58, 237, 0.12);
+
+    box-shadow: 0 20px 42px rgba(0, 0, 0, 0.35);
+}
+
+.movie-option img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+}
+
+.movie-option-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 16px;
+}
+
+.movie-option-title {
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.movie-option-year {
+    color: var(--text-soft);
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+
+.no-poster {
+    /* Reserva el mismo espacio que un póster real cuando TMDB no tiene imagen. */
+    display: grid;
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    place-items: center;
+    padding: 20px;
+    background: linear-gradient(135deg, var(--bg-soft), rgba(124, 58, 237, 0.18));
+    color: var(--text-soft);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+#search-results button:not(.movie-option) {
+    grid-column: 1 / -1;
+
+    padding: 14px 18px;
+
+    border-radius: 14px;
+
+    background: transparent;
+
+    border: 1px solid rgba(255, 255, 255, 0.12);
+
+    color: #c4b5fd;
+
+    font-weight: 700;
+}
+
+#search-results button:not(.movie-option):hover {
+    background: rgba(124, 58, 237, 0.10);
+    border-color: rgba(124, 58, 237, 0.55);
+}
+
+#back-button {
+    margin: 0;
+    padding: 13px 20px;
+
+    border: 1px solid rgba(124, 58, 237, 0.5);
+    border-radius: 14px;
+
+    background: rgba(124, 58, 237, 0.12);
+    color: #ddd6fe;
+
+    font-size: 0.95rem;
+    font-weight: 700;
+
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
+/* Barra superior: navegación a la izquierda y diagnóstico centrado. */
+#result-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 28px;
+}
+
+#result-toolbar[hidden] {
+    display: none;
+}
+
+.recommendation-summary {
+    flex: 1;
+    margin: 0;
+    padding: 14px 20px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    font-size: 1rem;
+    font-weight: 800;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.recommendation-summary--approved {
+    color: #bbf7d0;
+    background: rgba(34, 197, 94, 0.14);
+    border-color: rgba(34, 197, 94, 0.35);
+}
+
+.recommendation-summary--unknown {
+    color: #bfdbfe;
+    background: rgba(37, 99, 235, 0.14);
+    border-color: rgba(96, 165, 250, 0.35);
+}
+
+.recommendation-summary--denied {
+    color: #fecaca;
+    background: rgba(239, 68, 68, 0.16);
+    border-color: rgba(248, 113, 113, 0.45);
+    box-shadow: 0 10px 30px rgba(239, 68, 68, 0.12);
+}
+
+#back-button:hover {
+    transform: translateY(-2px);
+    background: rgba(124, 58, 237, 0.24);
+    border-color: rgba(167, 139, 250, 0.8);
+    box-shadow: 0 14px 30px rgba(124, 58, 237, 0.2);
+}
+
+/* Ficha detallada de la película seleccionada. */
+#result {
+    margin-top: 34px;
+
+    padding: 28px;
+
+    border: 1px solid var(--card-border);
+    border-radius: 22px;
+
+    background: rgba(255, 255, 255, 0.05);
+
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+}
+
+#result:empty {
+    /* Evita mostrar una tarjeta vacía antes de seleccionar una película. */
+    display: none;
+}
+
+#result img {
+    display: block;
+
+    width: min(280px, 100%);
+
+    margin: 0 auto 25px;
+
+    border-radius: 18px;
+
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+#result h2 {
+    text-align: center;
+
+    font-size: clamp(2rem, 4vw, 2.8rem);
+
+    margin-bottom: 18px;
+
+    letter-spacing: -1px;
+}
+
+#result p {
+    max-width: 760px;
+
+    margin: 10px auto;
+
+    color: #d1d5db;
+
+    line-height: 1.7;
+}
+
+#result p strong {
+    color: white;
+}
+
+/* Datos principales presentados como tarjetas para facilitar la lectura rápida. */
+.movie-metadata {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    max-width: 760px;
+    margin: 24px auto;
+}
+
+#result .metadata-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 96px;
+    margin: 0;
+    padding: 16px;
+    border: 1px solid rgba(124, 58, 237, 0.28);
+    border-radius: 16px;
+    background: linear-gradient(
+        145deg,
+        rgba(124, 58, 237, 0.16),
+        rgba(37, 99, 235, 0.08)
+    );
+    text-align: center;
+}
+
+#result .metadata-card--rating {
+    border-color: rgba(96, 165, 250, 0.38);
+    background: linear-gradient(
+        145deg,
+        rgba(37, 99, 235, 0.18),
+        rgba(14, 165, 233, 0.08)
+    );
+}
+
+#result .metadata-card--score {
+    border-color: rgba(250, 204, 21, 0.38);
+    background: linear-gradient(
+        145deg,
+        rgba(245, 158, 11, 0.16),
+        rgba(250, 204, 21, 0.07)
+    );
+}
+
+.metadata-card__label {
+    color: var(--text-soft);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+#result .metadata-card__value {
+    color: var(--text);
+    font-size: 1.08rem;
+}
+
+/* La sinopsis recibe un fondo propio para separarla de los datos técnicos. */
+.movie-description {
+    max-width: 760px;
+    margin: 22px auto 0;
+    padding: 22px 24px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.045);
+    box-shadow: inset 4px 0 0 rgba(124, 58, 237, 0.75);
+}
+
+.movie-description h3 {
+    margin-bottom: 8px;
+    color: #ddd6fe;
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+#result .movie-description p {
+    margin: 0;
+    color: #d1d5db;
+    line-height: 1.75;
+}
+
+#search-results p {
+    grid-column: 1 / -1;
+
+    padding: 18px;
+
+    border-radius: 14px;
+
+    background: rgba(239, 68, 68, 0.08);
+
+    border: 1px solid rgba(239, 68, 68, 0.18);
+
+    color: #fecaca;
+
+    text-align: center;
+}
+/* Pie de créditos: muestra la atribución sin competir visualmente con MaxiCheck. */
+.site-footer {
+    width: min(1050px, 100%);
+    margin: 18px auto 0;
+    padding: 0 20px;
+
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    line-height: 1.6;
+    text-align: center;
+}
+
+.site-footer a {
+    color: #c4b5fd;
+    font-weight: 700;
+    text-underline-offset: 3px;
+}
+
+.site-footer a:hover,
+.site-footer a:focus-visible {
+    color: #93c5fd;
+}
+/* Tablet: dos campos por fila y dos tarjetas por fila. */
+@media (max-width: 850px) {
+
+    form {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    form button {
+        grid-column: 1 / -1;
+    }
+
+    #search-results {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .movie-metadata {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+}
+
+/* Móvil: todos los bloques pasan a una sola columna y se reduce el espacio. */
+@media (max-width: 600px) {
+
+    body {
+        padding: 18px 12px;
+    }
+
+    main {
+        padding: 26px 18px;
+        border-radius: 22px;
+    }
+
+    .brand {
+        margin-bottom: 28px;
+    }
+
+    .brand__logo {
+        width: 100%;
+        height: clamp(90px, 32vw, 135px);
+    }
+
+    form {
+        grid-template-columns: 1fr;
+    }
+
+    form button {
+        grid-column: auto;
+    }
+
+    #search-results {
+        grid-template-columns: 1fr;
+    }
+
+    #result {
+        padding: 20px;
+    }
+
+    .movie-metadata {
+        grid-template-columns: 1fr;
+    }
+
+    #result .metadata-card {
+        min-height: 82px;
+    }
+
+    .movie-description {
+        padding: 19px 18px;
+    }
+
+    #result-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #back-button,
+    .recommendation-summary {
+        width: 100%;
+    }
+
+}

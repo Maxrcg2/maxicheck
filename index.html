@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <!-- Metadatos básicos para caracteres, diseño responsive y nombre de la pestaña. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MaxiCheck te ayuda a comprobar si una película es apropiada para tu edad.">
+    <title>MaxiCheck | Check before you watch.</title>
+
+    <!-- Identidad visual y hoja de estilos principal. -->
+    <link rel="icon" type="image/png" href="images/maxicheck-icon.png">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Contenedor principal de la aplicación. -->
+    <main>
+        <!-- Cabecera de marca; el texto alternativo conserva el nombre accesible. -->
+        <header class="brand">
+            <img class="brand__logo" src="images/maxicheck-logo.png" alt="MaxiCheck — Check before you watch.">
+        </header>
+
+        <!-- Recoge la edad y el título que se buscará en TMDB. -->
+        <form id="movie-form">
+            <div>
+                <label for="age">¿Cuántos años tienes?</label>
+                <input type="number" id="age" min="1" max="120" required>
+            </div>
+            <div>
+                <label for="movie">¿Qué película quieres ver?</label>
+                <input type="text" id="movie" required>
+            </div>
+            <button type="submit">Comprobar película</button>
+        </form>
+
+        <!-- Coincidencias y ficha seleccionada generadas desde JavaScript. -->
+        <section id="search-results" aria-live="polite"></section>
+        <!-- Agrupa la navegación y el diagnóstico para ofrecer una lectura inmediata. -->
+        <div id="result-toolbar" hidden>
+            <button id="back-button" type="button">← Volver a resultados</button>
+            <p id="recommendation-summary" role="status" aria-live="polite"></p>
+        </div>
+        <section id="result" aria-live="polite"></section>
+    </main>
+<!-- Créditos y atribución oficial de TMDB. -->
+<footer class="site-footer">
+    <p>
+        This product uses the
+        <a
+            href="https://www.themoviedb.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+        >
+            TMDB API
+        </a>
+        but is not endorsed or certified by TMDB.
+    </p>
+</footer>
+    <!-- Se carga al final para que los elementos anteriores ya existan. -->
+    <script src="js/app.js"></script>
+</body>
+</html>
