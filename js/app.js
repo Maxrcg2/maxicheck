@@ -21,31 +21,145 @@ const savedListCount = document.getElementById("saved-list-count");
 const savedListPanel = document.getElementById("saved-list-panel");
 const savedListClose = document.getElementById("saved-list-close");
 const savedListContent = document.getElementById("saved-list-content");
+const themeToggle = document.getElementById("theme-toggle");
+const themeToggleIcon = themeToggle.querySelector("[data-theme-icon]");
+const themeToggleLabel = themeToggle.querySelector("[data-theme-label]");
+const navHomeButton = document.getElementById("nav-home");
+const navTopButton = document.getElementById("nav-top");
+const navPopularButton = document.getElementById("nav-popular");
+const navAdvancedButton = document.getElementById("nav-advanced");
+const filmAffinityNavLink = document.getElementById("nav-filmaffinity");
+const imdbNavLink = document.getElementById("nav-imdb");
+const rottenTomatoesNavLink = document.getElementById("nav-rotten-tomatoes");
+const metacriticNavLink = document.getElementById("nav-metacritic");
+const advancedSearchPanel = document.getElementById("advanced-search-panel");
+const advancedSearchClose = document.getElementById("advanced-search-close");
+const advancedSearchForm = document.getElementById("advanced-search-form");
 let currentResultsCount = 0;
 let openedFromSavedList = false;
+let currentNavigationId = "nav-home";
+let catalogRequestVersion = 0;
 const SAVED_MOVIES_KEY = "maxicheck-saved-movies";
+const THEME_STORAGE_KEY = "maxicheck-theme";
+const THEME_OPTIONS = [
+    { id: "dark", label: "Oscuro", icon: "☾" },
+    { id: "dim", label: "Penumbra", icon: "◐" },
+    { id: "light", label: "Claro", icon: "☀" }
+];
+let savedListRecommendations = [];
+let savedRecommendationsCacheKey = "";
+let savedListRenderVersion = 0;
+
+// Cambia el tema sin recargar y mantiene sincronizados icono, texto y accesibilidad.
+function applyTheme(themeId, persist = true) {
+    const themeIndex = THEME_OPTIONS.findIndex(function(theme) { return theme.id === themeId; });
+    const currentTheme = THEME_OPTIONS[themeIndex >= 0 ? themeIndex : 0];
+    const nextTheme = THEME_OPTIONS[(THEME_OPTIONS.indexOf(currentTheme) + 1) % THEME_OPTIONS.length];
+
+    document.documentElement.dataset.theme = currentTheme.id;
+    document.documentElement.style.colorScheme = currentTheme.id === "light" ? "light" : "dark";
+    themeToggleIcon.textContent = currentTheme.icon;
+    themeToggleLabel.textContent = currentTheme.label;
+    themeToggle.setAttribute(
+        "aria-label",
+        `Tema actual: ${currentTheme.label}. Cambiar a ${nextTheme.label}.`
+    );
+    themeToggle.title = `Tema ${currentTheme.label}. Siguiente: ${nextTheme.label}`;
+
+    if (persist) {
+        try {
+            localStorage.setItem(THEME_STORAGE_KEY, currentTheme.id);
+        } catch (error) {
+            // El cambio visual no depende de que el navegador permita guardar la preferencia.
+        }
+    }
+}
+
+// El atributo fue establecido en <head>; aquí se completa el control interactivo.
+function initializeThemeToggle() {
+    const initialTheme = document.documentElement.dataset.theme;
+    applyTheme(initialTheme, false);
+
+    themeToggle.addEventListener("click", function() {
+        const currentIndex = THEME_OPTIONS.findIndex(function(theme) {
+            return theme.id === document.documentElement.dataset.theme;
+        });
+        const nextTheme = THEME_OPTIONS[(currentIndex + 1) % THEME_OPTIONS.length];
+        applyTheme(nextTheme.id);
+    });
+}
+
+initializeThemeToggle();
+
+// TMDB usa nombres de campos distintos para películas y series; MaxiCheck los unifica aquí.
+function normalizeContent(content, fallbackType = "movie") {
+    const mediaType = content?.media_type === "tv"
+        ? "tv"
+        : content?.media_type === "movie" ? "movie" : fallbackType === "tv" ? "tv" : "movie";
+    const genreIds = Array.isArray(content?.genre_ids)
+        ? content.genre_ids
+        : Array.isArray(content?.genres) ? content.genres.map(function(genre) { return genre.id; }) : [];
+
+    return {
+        ...content,
+        media_type: mediaType,
+        title: content?.title || content?.name || "Título no disponible",
+        original_title: content?.original_title || content?.original_name || content?.title || content?.name || "",
+        release_date: content?.release_date || content?.first_air_date || "",
+        genre_ids: genreIds,
+        maxicheck_is_documentary: content?.maxicheck_is_documentary === true || genreIds.includes(99)
+    };
+}
+
+function getContentKey(contentOrId, mediaType = "movie") {
+    if (typeof contentOrId === "object") {
+        const content = normalizeContent(contentOrId);
+        return `${content.media_type}:${content.id}`;
+    }
+    return `${mediaType === "tv" ? "tv" : "movie"}:${contentOrId}`;
+}
+
+function getContentTypeLabel(content, short = false) {
+    const normalized = normalizeContent(content);
+    if (normalized.maxicheck_is_documentary) return short ? "DOC" : "Documental";
+    return normalized.media_type === "tv" ? (short ? "SERIE" : "Serie de TV") : (short ? "PELÍCULA" : "Película");
+}
+
+function isSameContent(first, second) {
+    return getContentKey(first) === getContentKey(second);
+}
 
 function getSavedMovies() {
     try {
         const savedMovies = JSON.parse(localStorage.getItem(SAVED_MOVIES_KEY) || "[]");
-        return Array.isArray(savedMovies) ? savedMovies : [];
+        return Array.isArray(savedMovies)
+            ? savedMovies.map(function(movie) {
+                const normalized = normalizeContent(movie, movie.media_type || "movie");
+                return {
+                    ...normalized,
+                    listStatus: movie.listStatus === "watched" ? "watched" : "pending"
+                };
+            })
+            : [];
     } catch (error) {
         return [];
     }
 }
 
-function movieIsSaved(movieId) {
-    return getSavedMovies().some(function(movie) { return movie.id === movieId; });
+function movieIsSaved(movieId, mediaType = "movie") {
+    const key = getContentKey(movieId, mediaType);
+    return getSavedMovies().some(function(movie) { return getContentKey(movie) === key; });
 }
 
 function toggleSavedMovie(movie) {
     const savedMovies = getSavedMovies();
-    const existingIndex = savedMovies.findIndex(function(item) { return item.id === movie.id; });
+    const normalizedMovie = normalizeContent(movie);
+    const existingIndex = savedMovies.findIndex(function(item) { return isSameContent(item, normalizedMovie); });
 
     if (existingIndex >= 0) {
         savedMovies.splice(existingIndex, 1);
     } else {
-        savedMovies.unshift(movie);
+        savedMovies.unshift({ ...normalizedMovie, listStatus: "pending" });
     }
 
     localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(savedMovies));
@@ -57,52 +171,170 @@ function updateSavedListButton() {
     savedListCount.textContent = String(total);
     savedListButton.setAttribute(
         "aria-label",
-        `Abrir Mi lista, ${total} ${total === 1 ? "película" : "películas"}`
+        `Abrir Mi lista, ${total} ${total === 1 ? "título" : "títulos"}`
     );
 }
 
-function renderSavedList() {
-    const savedMovies = getSavedMovies();
+function setActiveNavigation(buttonId, rememberSelection = true) {
+    document.querySelectorAll(".catalog-nav__button").forEach(function(button) {
+        const isActive = button.id === buttonId;
+        button.classList.toggle("catalog-nav__button--active", isActive);
+        if (isActive) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+    });
 
-    if (savedMovies.length === 0) {
-        savedListContent.innerHTML = `
-            <div class="saved-list-empty">
-                <span aria-hidden="true">♡</span>
-                <h3>Tu lista está vacía</h3>
-                <p>Guarda una película desde su ficha para encontrarla aquí.</p>
-            </div>
-        `;
-        return;
+    if (rememberSelection && buttonId !== "saved-list-button") {
+        currentNavigationId = buttonId;
     }
+}
 
-    savedListContent.innerHTML = `
-        <div class="saved-list-grid">
-            ${savedMovies.map(function(movie) {
-                const poster = movie.poster_path
-                    ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
-                    : "";
-                const year = movie.release_date
-                    ? movie.release_date.substring(0, 4)
-                    : "Año desconocido";
+function renderSavedMovieCard(movie, listStatus) {
+    movie = normalizeContent(movie);
+    const poster = movie.poster_path
+        ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
+        : "";
+    const year = movie.release_date
+        ? movie.release_date.substring(0, 4)
+        : "Año desconocido";
+    const nextStatus = listStatus === "watched" ? "pending" : "watched";
+    const statusLabel = listStatus === "watched" ? "Marcar como pendiente" : "Marcar como vista";
 
-                return `
-                    <article class="saved-movie-card">
-                        <button type="button" class="saved-movie-open" data-saved-id="${movie.id}">
-                            ${poster
-                                ? `<img src="${poster}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
-                                : `<span class="saved-movie-placeholder">Sin imagen</span>`
-                            }
-                            <span><strong>${escapeHtml(movie.title)}</strong><small>${year}</small></span>
-                        </button>
-                        <button type="button" class="saved-movie-remove" data-remove-id="${movie.id}" aria-label="Eliminar ${escapeHtml(movie.title)} de Mi lista">Eliminar</button>
-                    </article>
-                `;
-            }).join("")}
-        </div>
+    return `
+        <article class="saved-movie-card saved-movie-card--${listStatus}">
+            <button type="button" class="saved-movie-open" data-saved-id="${movie.id}" data-media-type="${movie.media_type}">
+                ${poster
+                    ? `<img src="${poster}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
+                    : `<span class="saved-movie-placeholder">Sin imagen</span>`
+                }
+                <span><strong>${escapeHtml(movie.title)}</strong><small>${getContentTypeLabel(movie)} · ${year}</small></span>
+            </button>
+            <div class="saved-movie-actions">
+                <button type="button" class="saved-movie-status" data-status-id="${movie.id}" data-media-type="${movie.media_type}" data-next-status="${nextStatus}">${statusLabel}</button>
+                <button type="button" class="saved-movie-remove" data-remove-id="${movie.id}" data-media-type="${movie.media_type}" aria-label="Eliminar ${escapeHtml(movie.title)} de Mi lista">Eliminar</button>
+            </div>
+        </article>
     `;
 }
 
+function renderSavedRecommendationCard(movie) {
+    movie = normalizeContent(movie);
+    const poster = movie.poster_path
+        ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
+        : "";
+    const year = movie.release_date ? movie.release_date.substring(0, 4) : "Año desconocido";
+
+    return `
+        <article class="saved-movie-card saved-movie-card--recommendation">
+            <button type="button" class="saved-movie-open" data-recommendation-id="${movie.id}" data-media-type="${movie.media_type}">
+                ${poster
+                    ? `<img src="${poster}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
+                    : `<span class="saved-movie-placeholder">Sin imagen</span>`
+                }
+                <span>
+                    <strong>${escapeHtml(movie.title)}</strong>
+                    <small>${getContentTypeLabel(movie)} · ${year} · ${escapeHtml(movie.maxicheck_reason || "Recomendada para ti")}</small>
+                </span>
+            </button>
+            <div class="saved-movie-actions">
+                <button type="button" class="saved-recommendation-add" data-add-recommendation-id="${movie.id}" data-media-type="${movie.media_type}">+ Añadir a pendientes</button>
+            </div>
+        </article>
+    `;
+}
+
+function renderSavedSection(title, icon, movies, listStatus, emptyText) {
+    return `
+        <section class="saved-list-section saved-list-section--${listStatus}">
+            <header class="saved-list-section__heading">
+                <span aria-hidden="true">${icon}</span>
+                <div><h3>${title}</h3><p>${movies.length} ${movies.length === 1 ? "título" : "títulos"}</p></div>
+            </header>
+            ${movies.length > 0
+                ? `<div class="saved-list-grid">${movies.map(function(movie) {
+                    return renderSavedMovieCard(movie, listStatus);
+                }).join("")}</div>`
+                : `<p class="saved-list-section__empty">${emptyText}</p>`
+            }
+        </section>
+    `;
+}
+
+async function getRecommendationsFromWatched(watchedMovies, allSavedMovies) {
+    const watchedKey = watchedMovies.map(getContentKey).sort().join("-");
+    const savedKey = allSavedMovies.map(getContentKey).sort().join("-");
+    const cacheKey = `${watchedKey}|saved:${savedKey}`;
+    if (cacheKey === savedRecommendationsCacheKey) return savedListRecommendations;
+
+    savedRecommendationsCacheKey = cacheKey;
+    savedListRecommendations = [];
+    if (watchedMovies.length === 0) return [];
+
+    const responses = await Promise.allSettled(watchedMovies.slice(0, 6).map(async function(movie) {
+        const response = await fetch(`${API_BASE_URL}/${movie.media_type}/${movie.id}/recommendations`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (data.results || []).map(function(recommendation) {
+            return { ...normalizeContent(recommendation, movie.media_type), maxicheck_reason: `Porque viste ${movie.title}` };
+        });
+    }));
+
+    const savedIds = new Set(allSavedMovies.map(getContentKey));
+    const recommendationMap = new Map();
+    responses.forEach(function(response) {
+        if (response.status !== "fulfilled") return;
+        response.value.forEach(function(movie) {
+            const contentKey = getContentKey(movie);
+            if (!movie.id || !movie.title || movie.adult === true || savedIds.has(contentKey) || recommendationMap.has(contentKey)) return;
+            recommendationMap.set(contentKey, movie);
+        });
+    });
+
+    if (savedRecommendationsCacheKey !== cacheKey) return savedListRecommendations;
+
+    savedListRecommendations = Array.from(recommendationMap.values())
+        .sort(function(first, second) {
+            return (second.vote_average || 0) - (first.vote_average || 0);
+        })
+        .slice(0, 12);
+    return savedListRecommendations;
+}
+
+async function renderSavedList() {
+    const renderVersion = ++savedListRenderVersion;
+    const savedMovies = getSavedMovies();
+    const pendingMovies = savedMovies.filter(function(movie) { return movie.listStatus === "pending"; });
+    const watchedMovies = savedMovies.filter(function(movie) { return movie.listStatus === "watched"; });
+
+    savedListContent.innerHTML = `
+        ${renderSavedSection("Pendientes", "⏳", pendingMovies, "pending", "No tienes títulos pendientes.")}
+        ${renderSavedSection("Vistas", "✓", watchedMovies, "watched", "Marca un título como visto para moverlo aquí.")}
+        <section class="saved-list-section saved-list-section--recommendations">
+            <header class="saved-list-section__heading">
+                <span aria-hidden="true">✦</span>
+                <div><h3>Recomendaciones para ti</h3><p>Basadas en tus películas y series vistas</p></div>
+            </header>
+            <div class="saved-recommendations-content">
+                ${watchedMovies.length > 0
+                    ? `<p class="saved-list-section__empty">Preparando recomendaciones…</p>`
+                    : `<p class="saved-list-section__empty">Marca títulos como vistos para recibir recomendaciones.</p>`
+                }
+            </div>
+        </section>
+    `;
+
+    if (watchedMovies.length === 0) return;
+
+    const recommendations = await getRecommendationsFromWatched(watchedMovies, savedMovies);
+    if (renderVersion !== savedListRenderVersion) return;
+    const recommendationsContent = savedListContent.querySelector(".saved-recommendations-content");
+    if (!recommendationsContent) return;
+    recommendationsContent.innerHTML = recommendations.length > 0
+        ? `<div class="saved-list-grid">${recommendations.map(renderSavedRecommendationCard).join("")}</div>`
+        : `<p class="saved-list-section__empty">No encontramos recomendaciones nuevas por el momento.</p>`;
+}
+
 function openSavedList() {
+    setActiveNavigation("saved-list-button", false);
     renderSavedList();
     savedListPanel.hidden = false;
     savedListButton.setAttribute("aria-expanded", "true");
@@ -114,6 +346,7 @@ function closeSavedList() {
     savedListPanel.hidden = true;
     savedListButton.setAttribute("aria-expanded", "false");
     document.body.classList.remove("saved-list-open");
+    setActiveNavigation(currentNavigationId, false);
     savedListButton.focus();
 }
 
@@ -125,20 +358,72 @@ savedListPanel.addEventListener("click", function(event) {
 
 savedListContent.addEventListener("click", async function(event) {
     const removeButton = event.target.closest(".saved-movie-remove");
+    const statusButton = event.target.closest(".saved-movie-status");
+    const addRecommendationButton = event.target.closest(".saved-recommendation-add");
     const openButton = event.target.closest(".saved-movie-open");
 
     if (removeButton) {
         const movieId = Number(removeButton.dataset.removeId);
-        const updatedMovies = getSavedMovies().filter(function(movie) { return movie.id !== movieId; });
+        const mediaType = removeButton.dataset.mediaType || "movie";
+        const contentKey = getContentKey(movieId, mediaType);
+        const updatedMovies = getSavedMovies().filter(function(movie) { return getContentKey(movie) !== contentKey; });
         localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(updatedMovies));
         updateSavedListButton();
         renderSavedList();
         return;
     }
 
+    if (statusButton) {
+        const movieId = Number(statusButton.dataset.statusId);
+        const mediaType = statusButton.dataset.mediaType || "movie";
+        const contentKey = getContentKey(movieId, mediaType);
+        const nextStatus = statusButton.dataset.nextStatus === "watched" ? "watched" : "pending";
+        const updatedMovies = getSavedMovies().map(function(movie) {
+            return getContentKey(movie) === contentKey ? { ...movie, listStatus: nextStatus } : movie;
+        });
+        localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(updatedMovies));
+        renderSavedList();
+        return;
+    }
+
+    if (addRecommendationButton) {
+        const movieId = Number(addRecommendationButton.dataset.addRecommendationId);
+        const mediaType = addRecommendationButton.dataset.mediaType || "movie";
+        const contentKey = getContentKey(movieId, mediaType);
+        const recommendation = savedListRecommendations.find(function(movie) {
+            return getContentKey(movie) === contentKey;
+        });
+        if (!recommendation) return;
+
+        const savedMovies = getSavedMovies();
+        if (!savedMovies.some(function(movie) { return getContentKey(movie) === contentKey; })) {
+            savedMovies.unshift({
+                id: recommendation.id,
+                title: recommendation.title,
+                poster_path: recommendation.poster_path,
+                release_date: recommendation.release_date,
+                vote_average: recommendation.vote_average,
+                overview: recommendation.overview,
+                media_type: recommendation.media_type,
+                maxicheck_is_documentary: recommendation.maxicheck_is_documentary,
+                listStatus: "pending"
+            });
+            localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(savedMovies));
+        }
+        updateSavedListButton();
+        renderSavedList();
+        return;
+    }
+
     if (openButton) {
-        const movieId = Number(openButton.dataset.savedId);
-        const savedMovie = getSavedMovies().find(function(movie) { return movie.id === movieId; });
+        const movieId = Number(openButton.dataset.savedId || openButton.dataset.recommendationId);
+        const mediaType = openButton.dataset.mediaType || "movie";
+        const contentKey = getContentKey(movieId, mediaType);
+        const savedMovie = getSavedMovies().find(function(movie) {
+            return getContentKey(movie) === contentKey;
+        }) || savedListRecommendations.find(function(movie) {
+            return getContentKey(movie) === contentKey;
+        });
         if (!savedMovie) return;
 
         movieInput.value = savedMovie.title;
@@ -147,7 +432,7 @@ savedListContent.addEventListener("click", async function(event) {
         if (!Number.isFinite(age) || age < 1 || age > 120) {
             closeSavedList();
             searchResults.style.display = "grid";
-            searchResults.innerHTML = `<p>Indica tu edad para comprobar la película guardada.</p>`;
+            searchResults.innerHTML = `<p>Indica tu edad para comprobar el título guardado.</p>`;
             window.scrollTo({ top: 0, behavior: "smooth" });
             ageInput.focus();
             return;
@@ -160,20 +445,20 @@ savedListContent.addEventListener("click", async function(event) {
         backButton.hidden = false;
         form.classList.add("form--detail");
         hideSearchResultsCount();
-        result.innerHTML = `<p class="loading-message">Cargando película guardada…</p>`;
+        result.innerHTML = `<p class="loading-message">Cargando título guardado…</p>`;
 
         try {
             const searchResponse = await fetch(
                 `${API_BASE_URL}/search?query=${encodeURIComponent(savedMovie.title)}`
             );
-            if (!searchResponse.ok) throw new Error("No fue posible buscar la película.");
+            if (!searchResponse.ok) throw new Error("No fue posible buscar el título.");
             const searchData = await searchResponse.json();
             const completeMovie = searchData.results.find(function(movie) {
-                return movie.id === savedMovie.id;
+                return isSameContent(movie, savedMovie);
             }) || savedMovie;
-            await showMovieDetails(completeMovie, age);
+            await showContentDetails(completeMovie, age);
         } catch (error) {
-            result.innerHTML = `<p class="detail-error">No pudimos abrir esta película guardada.</p>`;
+            result.innerHTML = `<p class="detail-error">No pudimos abrir este título guardado.</p>`;
         }
     }
 });
@@ -216,6 +501,22 @@ function hideSearchResultsCount() {
     headerResultsCount.textContent = "";
 }
 
+// Mientras no hay una película abierta, los accesos externos llevan a la portada de cada servicio.
+function resetExternalMovieLinks() {
+    const defaultLinks = [
+        [filmAffinityNavLink, "https://www.filmaffinity.com/es/", "Abrir FilmAffinity"],
+        [imdbNavLink, "https://www.imdb.com/", "Abrir IMDb"],
+        [rottenTomatoesNavLink, "https://www.rottentomatoes.com/", "Abrir Rotten Tomatoes"],
+        [metacriticNavLink, "https://www.metacritic.com/", "Abrir Metacritic"]
+    ];
+
+    defaultLinks.forEach(function([link, url, label]) {
+        link.href = url;
+        link.setAttribute("aria-label", `${label} en una pestaña nueva`);
+        link.title = label;
+    });
+}
+
 // Limpia los datos de la película anterior al buscar o regresar a la cuadrícula.
 function resetHeaderIndicators() {
     headerRecommendation.hidden = true;
@@ -229,10 +530,14 @@ function resetHeaderIndicators() {
     headerCertification.className = "header-certification";
     headerCertification.removeAttribute("title");
     headerCertification.removeAttribute("aria-label");
+
+    resetExternalMovieLinks();
 }
 
 // Restaura la misma vista limpia que encuentra una persona al abrir MaxiCheck.
 function resetApplication() {
+    catalogRequestVersion += 1;
+    setActiveNavigation("nav-home");
     form.reset();
     form.classList.remove("form--detail");
     backButton.hidden = true;
@@ -263,15 +568,250 @@ function resetApplication() {
 }
 
 homeButton.addEventListener("click", resetApplication);
+navHomeButton.addEventListener("click", resetApplication);
+
+function prepareCatalogView() {
+    openedFromSavedList = false;
+    resultToolbar.hidden = true;
+    backButton.hidden = true;
+    form.classList.remove("form--detail");
+    recommendationSummary.textContent = "";
+    resetHeaderIndicators();
+    result.innerHTML = "";
+    searchResults.style.display = "grid";
+}
+
+// Dibuja Top MC, Populares o una búsqueda avanzada usando la misma paginación real.
+async function showCatalog(configuration) {
+    const requestVersion = ++catalogRequestVersion;
+    prepareCatalogView();
+    setActiveNavigation(configuration.navigationId);
+    hideSearchResultsCount();
+    searchResults.innerHTML = `<p class="catalog-loading">Cargando ${escapeHtml(configuration.title.toLowerCase())}…</p>`;
+
+    const requestParameters = new URLSearchParams(configuration.parameters || {});
+    requestParameters.set("mode", configuration.mode);
+    requestParameters.set("page", "1");
+
+    try {
+        const firstResponse = await fetch(`${API_BASE_URL}/catalog?${requestParameters.toString()}`);
+        const firstPage = await firstResponse.json();
+        if (requestVersion !== catalogRequestVersion) return;
+        if (!firstResponse.ok) throw new Error(firstPage.error || "No fue posible abrir el catálogo.");
+
+        let movies = Array.isArray(firstPage.results) ? firstPage.results.map(normalizeContent) : [];
+        const initialResultsLimit = 8;
+        const totalResults = Number(firstPage.total_results) || movies.length;
+        const totalPages = Number(firstPage.total_pages) || 1;
+        let currentPage = Number(firstPage.page) || 1;
+        let visibleResultsLimit = initialResultsLimit;
+        let loadingNextPage = false;
+
+        currentResultsCount = totalResults;
+        showSearchResultsCount(totalResults);
+
+        function renderCatalog() {
+            const visibleMovies = movies.slice(0, visibleResultsLimit);
+            searchResults.innerHTML = `
+                <header class="catalog-heading">
+                    <span>${escapeHtml(configuration.eyebrow)}</span>
+                    <h2>${escapeHtml(configuration.title)}</h2>
+                    <p>${escapeHtml(configuration.description)}</p>
+                </header>
+            `;
+
+            if (visibleMovies.length === 0) {
+                searchResults.innerHTML += `<p class="catalog-empty">No encontramos títulos con estos criterios.</p>`;
+            }
+
+            visibleMovies.forEach(function(movie) {
+                const poster = movie.poster_path
+                    ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
+                    : "";
+                const year = movie.release_date ? movie.release_date.substring(0, 4) : "Año desconocido";
+                const score = movie.vote_average > 0 ? movie.vote_average.toFixed(1) : "—";
+
+                searchResults.innerHTML += `
+                    <button type="button" class="movie-option catalog-movie" data-catalog-movie-id="${movie.id}" data-media-type="${movie.media_type}">
+                        ${poster
+                            ? `<img src="${poster}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
+                            : `<div class="no-poster">Sin imagen</div>`
+                        }
+                        <div class="movie-option-info">
+                            <span class="movie-option-type">${getContentTypeLabel(movie, true)}</span>
+                            <span class="movie-option-title">${escapeHtml(movie.title)}</span>
+                            <span class="movie-option-year">${escapeHtml(year)} · ⭐ ${score}</span>
+                        </div>
+                    </button>
+                `;
+            });
+
+            const hasHiddenLoadedResults = visibleResultsLimit < movies.length;
+            const canCollapse = visibleResultsLimit > initialResultsLimit;
+            const hasMorePages = currentPage < totalPages;
+            if (hasHiddenLoadedResults || canCollapse || hasMorePages) {
+                searchResults.innerHTML += `
+                    <div class="results-controls">
+                        ${hasHiddenLoadedResults ? `<button type="button" class="toggle-results">Ver más (${movies.length - visibleResultsLimit})</button>` : ""}
+                        ${canCollapse ? `<button type="button" class="collapse-results">Ver menos</button>` : ""}
+                        ${hasMorePages && !hasHiddenLoadedResults ? `<button type="button" class="load-more-results">Cargar más títulos</button>` : ""}
+                    </div>
+                `;
+            }
+        }
+
+        renderCatalog();
+
+        searchResults.onclick = async function(event) {
+            const movieButton = event.target.closest(".catalog-movie");
+            const showMoreButton = event.target.closest(".toggle-results");
+            const collapseButton = event.target.closest(".collapse-results");
+            const loadMoreButton = event.target.closest(".load-more-results");
+
+            if (showMoreButton) {
+                visibleResultsLimit = movies.length;
+                renderCatalog();
+                return;
+            }
+            if (collapseButton) {
+                visibleResultsLimit = initialResultsLimit;
+                renderCatalog();
+                searchResults.scrollIntoView({ behavior: "smooth", block: "start" });
+                return;
+            }
+            if (loadMoreButton && !loadingNextPage) {
+                loadingNextPage = true;
+                loadMoreButton.disabled = true;
+                loadMoreButton.textContent = "Cargando…";
+                try {
+                    requestParameters.set("page", String(currentPage + 1));
+                    const response = await fetch(`${API_BASE_URL}/catalog?${requestParameters.toString()}`);
+                    const nextPage = await response.json();
+                    if (requestVersion !== catalogRequestVersion) return;
+                    if (!response.ok) throw new Error(nextPage.error || "No fue posible cargar más.");
+                    const knownIds = new Set(movies.map(getContentKey));
+                    movies = movies.concat((nextPage.results || []).map(normalizeContent).filter(function(movie) {
+                        return !knownIds.has(getContentKey(movie));
+                    }));
+                    currentPage = nextPage.page;
+                    visibleResultsLimit = movies.length;
+                    renderCatalog();
+                } catch (error) {
+                    loadMoreButton.disabled = false;
+                    loadMoreButton.textContent = "No se pudo cargar · Reintentar";
+                } finally {
+                    loadingNextPage = false;
+                }
+                return;
+            }
+
+            if (movieButton) {
+                const age = Number(ageInput.value);
+                if (!Number.isInteger(age) || age < 1 || age > 120) {
+                    ageInput.setCustomValidity("Indica tu edad para abrir la ficha y recibir la recomendación.");
+                    ageInput.reportValidity();
+                    ageInput.focus();
+                    ageInput.addEventListener("input", function() {
+                        ageInput.setCustomValidity("");
+                    }, { once: true });
+                    return;
+                }
+
+                const selectedId = Number(movieButton.dataset.catalogMovieId);
+                const selectedType = movieButton.dataset.mediaType || "movie";
+                const selectedMovie = movies.find(function(movie) {
+                    return movie.id === selectedId && movie.media_type === selectedType;
+                });
+                if (!selectedMovie) return;
+
+                searchResults.style.display = "none";
+                resultToolbar.hidden = false;
+                backButton.hidden = false;
+                form.classList.add("form--detail");
+                hideSearchResultsCount();
+                result.innerHTML = `<p class="loading-message">Cargando información del título…</p>`;
+                try {
+                    await showContentDetails(selectedMovie, age);
+                } catch (error) {
+                    result.innerHTML = `<p class="detail-error">No pudimos cargar este título.</p>`;
+                }
+            }
+        };
+    } catch (error) {
+        currentResultsCount = 0;
+        showSearchResultsCount(0);
+        searchResults.innerHTML = `<p class="catalog-error">${escapeHtml(error.message)}</p>`;
+    }
+}
+
+function openAdvancedSearch() {
+    setActiveNavigation("nav-advanced", false);
+    advancedSearchPanel.hidden = false;
+    document.body.classList.add("advanced-search-open");
+    advancedSearchClose.focus();
+}
+
+function closeAdvancedSearch(restoreNavigation = true) {
+    advancedSearchPanel.hidden = true;
+    document.body.classList.remove("advanced-search-open");
+    if (restoreNavigation) setActiveNavigation(currentNavigationId, false);
+    navAdvancedButton.focus();
+}
+
+navTopButton.addEventListener("click", function() {
+    showCatalog({
+        mode: "top", navigationId: "nav-top", eyebrow: "Selección MaxiCheck",
+        title: "Top MC", description: "Las películas, series y documentales mejor valorados con un mínimo de 500 votos."
+    });
+});
+
+navPopularButton.addEventListener("click", function() {
+    showCatalog({
+        mode: "popular", navigationId: "nav-popular", eyebrow: "Tendencias de TMDB",
+        title: "Títulos populares", description: "Películas, series y documentales con mayor popularidad en este momento."
+    });
+});
+
+navAdvancedButton.addEventListener("click", openAdvancedSearch);
+advancedSearchClose.addEventListener("click", function() { closeAdvancedSearch(); });
+advancedSearchPanel.addEventListener("click", function(event) {
+    if (event.target === advancedSearchPanel) closeAdvancedSearch();
+});
+
+advancedSearchForm.addEventListener("submit", function(event) {
+    event.preventDefault();
+    const formData = new FormData(advancedSearchForm);
+    const parameters = {};
+    formData.forEach(function(value, key) {
+        if (String(value).trim()) parameters[key] = String(value).trim();
+    });
+
+    if (parameters.yearFrom && parameters.yearTo && Number(parameters.yearFrom) > Number(parameters.yearTo)) {
+        advancedSearchForm.elements.yearTo.setCustomValidity("El año final debe ser igual o posterior al inicial.");
+        advancedSearchForm.elements.yearTo.reportValidity();
+        return;
+    }
+    advancedSearchForm.elements.yearTo.setCustomValidity("");
+    closeAdvancedSearch(false);
+    showCatalog({
+        mode: "advanced", navigationId: "nav-advanced", parameters,
+        eyebrow: "Resultados filtrados", title: "Búsqueda avanzada",
+        description: "Títulos que coinciden con los filtros seleccionados."
+    });
+});
+
+document.addEventListener("keydown", function(event) {
+    if (event.key === "Escape" && !advancedSearchPanel.hidden) closeAdvancedSearch();
+});
 
 // Asigna un estado visual a cada clasificación sin depender del texto completo.
 function getCertificationClass(certification) {
     const normalized = certification.toUpperCase();
 
-    if (normalized === "G") return "header-certification--g";
-    if (normalized === "PG") return "header-certification--pg";
-    if (normalized === "PG-13") return "header-certification--pg13";
-    if (normalized === "R") return "header-certification--r";
+    if (["G", "TV-Y", "TV-G"].includes(normalized)) return "header-certification--g";
+    if (["PG", "TV-Y7", "TV-PG"].includes(normalized)) return "header-certification--pg";
+    if (["PG-13", "TV-14"].includes(normalized)) return "header-certification--pg13";
+    if (["R", "TV-MA"].includes(normalized)) return "header-certification--r";
     if (normalized === "NC-17") return "header-certification--nc17";
 
     return "header-certification--unknown";
@@ -371,9 +911,11 @@ function formatMoney(value) {
     }).format(value);
 }
 
-function renderImageGallery(images, label) {
+const EXPLORER_PAGE_SIZE = 12;
+
+function renderImageGallery(images) {
     if (!Array.isArray(images) || images.length === 0) {
-        return `<p class="explorer-empty">No hay ${label.toLowerCase()} disponibles.</p>`;
+        return `<p class="explorer-empty">No hay imágenes disponibles.</p>`;
     }
 
     return `
@@ -381,26 +923,254 @@ function renderImageGallery(images, label) {
             ${images.map(function(image, index) {
                 const previewUrl = `https://image.tmdb.org/t/p/w500${image.file_path}`;
                 const originalUrl = `https://image.tmdb.org/t/p/original${image.file_path}`;
+                const label = image.maxicheck_label;
 
                 return `
                     <a href="${originalUrl}" target="_blank" rel="noopener noreferrer"
+                       class="explorer-progressive-item"
+                       data-explorer-group="images"
+                       ${index >= EXPLORER_PAGE_SIZE ? "hidden" : ""}
                        aria-label="Abrir ${label.toLowerCase()} ${index + 1} en tamaño completo">
                         <img src="${previewUrl}" alt="${label} ${index + 1}" loading="lazy">
+                        <span class="explorer-image-type">${label}</span>
                     </a>
                 `;
             }).join("")}
         </div>
+        ${images.length > EXPLORER_PAGE_SIZE
+            ? `<button type="button" class="explorer-load-more" data-explorer-target="images" data-item-label="imágenes">
+                   Cargar más imágenes (${images.length - EXPLORER_PAGE_SIZE})
+               </button>`
+            : ""
+        }
     `;
+}
+
+// Revela el siguiente bloque de elementos ya descargados, sin repetir la consulta a TMDB.
+function bindExplorerPagination(container) {
+    container.addEventListener("click", function(event) {
+        const loadMoreButton = event.target.closest(".explorer-load-more");
+        if (!loadMoreButton) return;
+
+        const groupName = loadMoreButton.dataset.explorerTarget;
+        const hiddenItems = Array.from(
+            container.querySelectorAll(`.explorer-progressive-item[data-explorer-group="${groupName}"][hidden]`)
+        );
+
+        hiddenItems.slice(0, EXPLORER_PAGE_SIZE).forEach(function(item) {
+            item.hidden = false;
+        });
+
+        const remainingItems = hiddenItems.length - EXPLORER_PAGE_SIZE;
+        if (remainingItems <= 0) {
+            loadMoreButton.remove();
+        } else {
+            const itemLabel = loadMoreButton.dataset.itemLabel || "resultados";
+            loadMoreButton.textContent = `Cargar más ${itemLabel} (${remainingItems})`;
+        }
+    });
+}
+
+// Presenta el resumen de temporadas incluido en la ficha general de una serie.
+// Los episodios se solicitan después, únicamente cuando el usuario abre una temporada.
+function renderSeriesSeasons(seasons) {
+    if (!Array.isArray(seasons) || seasons.length === 0) {
+        return `<p class="explorer-empty">No hay información de temporadas disponible.</p>`;
+    }
+
+    const orderedSeasons = [...seasons].sort(function(first, second) {
+        return (first.season_number || 0) - (second.season_number || 0);
+    });
+
+    return `
+        <div class="explorer-seasons">
+            ${orderedSeasons.map(function(season) {
+                const seasonNumber = Number(season.season_number) || 0;
+                const posterUrl = season.poster_path
+                    ? `https://image.tmdb.org/t/p/w300${season.poster_path}`
+                    : "";
+                const episodeCount = Number(season.episode_count) || 0;
+                const seasonName = season.name || (seasonNumber === 0 ? "Especiales" : `Temporada ${seasonNumber}`);
+
+                return `
+                    <button type="button"
+                            class="explorer-season-card"
+                            data-season-number="${seasonNumber}"
+                            aria-expanded="false"
+                            aria-controls="explorer-season-detail">
+                        ${posterUrl
+                            ? `<img src="${posterUrl}" alt="Póster de ${escapeHtml(seasonName)}" loading="lazy">`
+                            : `<span class="explorer-season-card__placeholder" aria-hidden="true">📺</span>`
+                        }
+                        <span class="explorer-season-card__content">
+                            <strong>${escapeHtml(seasonName)}</strong>
+                            <small>${escapeHtml(formatExplorerDate(season.air_date))}</small>
+                            <span>${episodeCount} ${episodeCount === 1 ? "episodio" : "episodios"}</span>
+                        </span>
+                    </button>
+                `;
+            }).join("")}
+        </div>
+        <div id="explorer-season-detail"
+             class="explorer-season-detail"
+             role="region"
+             aria-live="polite"
+             hidden></div>
+    `;
+}
+
+// Evita mostrar fechas inválidas y conserva un texto claro cuando TMDB no las ofrece.
+function formatExplorerDate(value) {
+    if (!value) return "Fecha no disponible";
+    const date = new Date(`${value}T00:00:00`);
+    return Number.isNaN(date.getTime())
+        ? "Fecha no disponible"
+        : date.toLocaleDateString("es-DO", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// Dibuja los datos de una temporada y limita inicialmente sus episodios a doce.
+function renderSeasonEpisodes(season) {
+    const episodes = Array.isArray(season.episodes) ? season.episodes : [];
+    const seasonNumber = Number(season.season_number) || 0;
+    const groupName = `episodes-${seasonNumber}`;
+    const seasonTitle = season.name || (seasonNumber === 0 ? "Especiales" : `Temporada ${seasonNumber}`);
+    const overview = season.overview || "TMDB no ofrece una sinopsis para esta temporada.";
+
+    const episodesMarkup = episodes.length > 0
+        ? episodes.map(function(episode, index) {
+            const stillUrl = episode.still_path
+                ? `https://image.tmdb.org/t/p/w300${episode.still_path}`
+                : "";
+            const runtime = Number(episode.runtime) > 0 ? `${episode.runtime} min` : "Duración no disponible";
+            const rating = Number(episode.vote_average) > 0
+                ? `${Number(episode.vote_average).toFixed(1)}/10`
+                : "Sin puntuación";
+
+            return `
+                <article class="explorer-episode explorer-progressive-item"
+                         data-explorer-group="${groupName}"
+                         ${index >= EXPLORER_PAGE_SIZE ? "hidden" : ""}>
+                    ${stillUrl
+                        ? `<img src="${stillUrl}" alt="Imagen del episodio ${episode.episode_number}" loading="lazy">`
+                        : `<span class="explorer-episode__placeholder" aria-hidden="true">▶</span>`
+                    }
+                    <div class="explorer-episode__content">
+                        <span class="explorer-episode__number">Episodio ${escapeHtml(episode.episode_number || index + 1)}</span>
+                        <strong>${escapeHtml(episode.name || "Título no disponible")}</strong>
+                        <small>${escapeHtml(formatExplorerDate(episode.air_date))} · ${escapeHtml(runtime)} · ${escapeHtml(rating)}</small>
+                        <p>${escapeHtml(episode.overview || "Sinopsis no disponible.")}</p>
+                    </div>
+                </article>
+            `;
+        }).join("")
+        : `<p class="explorer-empty">No hay episodios disponibles para esta temporada.</p>`;
+
+    return `
+        <header class="explorer-season-detail__header">
+            <div>
+                <span>Temporada seleccionada</span>
+                <h3>${escapeHtml(seasonTitle)}</h3>
+            </div>
+            <strong>${episodes.length} ${episodes.length === 1 ? "episodio" : "episodios"}</strong>
+        </header>
+        <p class="explorer-season-overview">${escapeHtml(overview)}</p>
+        <div class="explorer-episodes">${episodesMarkup}</div>
+        ${episodes.length > EXPLORER_PAGE_SIZE
+            ? `<button type="button"
+                       class="explorer-load-more"
+                       data-explorer-target="${groupName}"
+                       data-item-label="episodios">
+                   Cargar más episodios (${episodes.length - EXPLORER_PAGE_SIZE})
+               </button>`
+            : ""
+        }
+    `;
+}
+
+// Gestiona la carga bajo demanda y conserva en memoria las temporadas ya consultadas.
+function bindSeriesSeasons(container, seriesId) {
+    const seasonsSection = container.querySelector(".explorer-seasons-section");
+    const seasonDetail = container.querySelector("#explorer-season-detail");
+    if (!seasonsSection || !seasonDetail) return;
+
+    const seasonCache = new Map();
+    let selectedSeasonNumber = null;
+
+    seasonsSection.addEventListener("click", async function(event) {
+        const seasonButton = event.target.closest(".explorer-season-card");
+        if (!seasonButton) return;
+
+        const seasonNumber = Number(seasonButton.dataset.seasonNumber);
+        if (!Number.isInteger(seasonNumber) || seasonNumber < 0) return;
+        selectedSeasonNumber = seasonNumber;
+
+        seasonsSection.querySelectorAll(".explorer-season-card").forEach(function(button) {
+            button.classList.remove("explorer-season-card--active");
+            button.setAttribute("aria-expanded", "false");
+        });
+        seasonButton.classList.add("explorer-season-card--active");
+        seasonButton.setAttribute("aria-expanded", "true");
+
+        seasonDetail.hidden = false;
+        if (seasonCache.has(seasonNumber)) {
+            seasonDetail.innerHTML = renderSeasonEpisodes(seasonCache.get(seasonNumber));
+            seasonDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            return;
+        }
+
+        seasonButton.disabled = true;
+        seasonButton.classList.add("explorer-season-card--loading");
+        seasonDetail.innerHTML = `<p class="explorer-season-loading">Cargando episodios de la temporada…</p>`;
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/tv/${seriesId}/season/${seasonNumber}`);
+            if (!response.ok) throw new Error("No fue posible cargar la temporada.");
+
+            const season = await response.json();
+            seasonCache.set(seasonNumber, season);
+            // Si el usuario eligió otra temporada mientras esta cargaba, se conserva
+            // la respuesta en caché sin reemplazar la temporada que está viendo.
+            if (selectedSeasonNumber === seasonNumber) {
+                seasonDetail.innerHTML = renderSeasonEpisodes(season);
+                seasonDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+        } catch (error) {
+            if (selectedSeasonNumber === seasonNumber) {
+                seasonDetail.innerHTML = `
+                    <p class="explorer-season-error">
+                        No pudimos cargar los episodios. Selecciona nuevamente la temporada para reintentar.
+                    </p>
+                `;
+            }
+        } finally {
+            seasonButton.disabled = false;
+            seasonButton.classList.remove("explorer-season-card--loading");
+        }
+    });
 }
 
 // Construye la vista extensa con cada conjunto de datos que MaxiCheck recibió de TMDB.
 function renderExplorerMarkup(bundle) {
     const movie = bundle.movie;
+    const mediaType = movie.media_type === "tv" ? "tv" : "movie";
+    const contentLabel = getContentTypeLabel(movie);
     const credits = bundle.credits;
     const releaseDates = bundle.releaseDates;
     const translations = bundle.translations;
     const providers = bundle.providers;
     const images = movie.images || {};
+    // La galería utiliza un único límite global de 12, no 12 por cada tipo de imagen.
+    const galleryImages = [
+        ...(Array.isArray(images.backdrops) ? images.backdrops.map(function(image) {
+            return { ...image, maxicheck_label: "Fondo" };
+        }) : []),
+        ...(Array.isArray(images.posters) ? images.posters.map(function(image) {
+            return { ...image, maxicheck_label: "Póster" };
+        }) : []),
+        ...(Array.isArray(images.logos) ? images.logos.map(function(image) {
+            return { ...image, maxicheck_label: "Logo" };
+        }) : [])
+    ];
     const videos = Array.isArray(bundle.videos?.results)
         ? bundle.videos.results
         : Array.isArray(movie.videos?.results) ? movie.videos.results : [];
@@ -420,7 +1190,9 @@ function renderExplorerMarkup(bundle) {
                 : "";
 
             return `
-                <article class="explorer-video">
+                <article class="explorer-video explorer-progressive-item"
+                         data-explorer-group="videos"
+                         ${videos.indexOf(video) >= EXPLORER_PAGE_SIZE ? "hidden" : ""}>
                     ${thumbnail ? `<img src="${thumbnail}" alt="Miniatura de ${escapeHtml(video.name)}" loading="lazy">` : ""}
                     <div>
                         <strong>${escapeHtml(video.name)}</strong>
@@ -484,8 +1256,10 @@ function renderExplorerMarkup(bundle) {
         : `<li>Disponibilidad no encontrada.</li>`;
 
     const detailRows = [
-        ["Estado", movie.status], ["Fecha de estreno", movie.release_date],
-        ["Duración", formatRuntime(movie.runtime)], ["Idioma original", getLanguageName(movie.original_language, movie.original_language)],
+        ["Tipo", contentLabel], ["Estado", movie.status], [mediaType === "tv" ? "Primera emisión" : "Fecha de estreno", movie.release_date],
+        [mediaType === "tv" ? "Duración por episodio" : "Duración", formatRuntime(movie.runtime)],
+        ["Temporadas", movie.maxicheck_number_of_seasons], ["Episodios", movie.maxicheck_number_of_episodes],
+        ["Idioma original", getLanguageName(movie.original_language, movie.original_language)],
         ["Géneros", movie.genres?.map(function(item) { return item.name; }).join(" · ")],
         ["Países", movie.production_countries?.map(function(item) { return item.name; }).join(" · ")],
         ["Idiomas hablados", movie.spoken_languages?.map(function(item) { return item.name || item.english_name; }).join(" · ")],
@@ -505,22 +1279,37 @@ function renderExplorerMarkup(bundle) {
         <section class="movie-explorer">
             <button type="button" class="explorer-back">← Volver a la ficha</button>
             <header class="explorer-hero" ${backdropUrl ? `style="background-image: linear-gradient(rgba(8,13,24,.35), rgba(8,13,24,.95)), url('${backdropUrl}')"` : ""}>
-                <span>Explorar película</span>
+                <span>Explorar ${escapeHtml(contentLabel.toLowerCase())}</span>
                 <h2>${escapeHtml(movie.title)}</h2>
                 <p>${escapeHtml(movie.tagline || movie.overview || "Información completa de TMDB")}</p>
             </header>
 
+            ${mediaType === "tv"
+                ? `<details class="explorer-section explorer-seasons-section" open>
+                       <summary>Temporadas y episodios (${movie.maxicheck_number_of_seasons || movie.seasons?.length || 0})</summary>
+                       ${renderSeriesSeasons(movie.seasons)}
+                   </details>`
+                : ""
+            }
+
             <details class="explorer-section" open><summary>Galería de imágenes</summary>
-                <h3>Fondos</h3>${renderImageGallery(images.backdrops, "Fondo")}
-                <h3>Pósteres</h3>${renderImageGallery(images.posters, "Póster")}
-                <h3>Logos</h3>${renderImageGallery(images.logos, "Logo")}
+                ${renderImageGallery(galleryImages)}
             </details>
 
-            <details class="explorer-section" open><summary>Videos y tráileres</summary><div class="explorer-videos">${videosMarkup}</div></details>
+            <details class="explorer-section" open>
+                <summary>Videos y tráileres</summary>
+                <div class="explorer-videos">${videosMarkup}</div>
+                ${videos.length > EXPLORER_PAGE_SIZE
+                    ? `<button type="button" class="explorer-load-more" data-explorer-target="videos" data-item-label="videos">
+                           Cargar más videos (${videos.length - EXPLORER_PAGE_SIZE})
+                       </button>`
+                    : ""
+                }
+            </details>
             <details class="explorer-section" open><summary>Ficha técnica completa</summary><dl class="explorer-details">${detailRows}</dl></details>
             <details class="explorer-section"><summary>Reparto completo (${credits.cast?.length || 0})</summary><div class="explorer-people">${castMarkup}</div></details>
             <details class="explorer-section"><summary>Equipo técnico completo (${credits.crew?.length || 0})</summary><ul class="explorer-data-list">${crewMarkup}</ul></details>
-            <details class="explorer-section"><summary>Estrenos y clasificaciones por país</summary><div class="explorer-releases">${releasesMarkup}</div></details>
+            <details class="explorer-section"><summary>${mediaType === "tv" ? "Clasificaciones televisivas por país" : "Estrenos y clasificaciones por país"}</summary><div class="explorer-releases">${releasesMarkup}</div></details>
             <details class="explorer-section"><summary>Títulos y traducciones</summary><ul class="explorer-data-list">${translationsMarkup}</ul></details>
             <details class="explorer-section"><summary>Disponibilidad internacional</summary><ul class="explorer-data-list">${providerCountries}</ul></details>
             <details class="explorer-section"><summary>Palabras clave</summary><div class="info-chip-list">${renderChips(keywords.map(function(item) { return escapeHtml(item.name); }), "No disponibles")}</div></details>
@@ -529,9 +1318,77 @@ function renderExplorerMarkup(bundle) {
     `;
 }
 
+function renderPersonFilmography(person, movies) {
+    const profileUrl = person.profilePath
+        ? `https://image.tmdb.org/t/p/w185${person.profilePath}`
+        : "";
+    const roleLabel = person.role === "actor" ? "Actuación" : person.role === "creator" ? "Creación" : "Dirección";
+    const emptyMessage = person.role === "actor"
+        ? "No encontramos películas o series en las que participe esta persona."
+        : "No encontramos películas o series creadas o dirigidas por esta persona.";
+
+    const movieCards = movies.length > 0
+        ? movies.map(function(movie, index) {
+            const posterUrl = movie.poster_path
+                ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
+                : "";
+            const year = movie.release_date
+                ? movie.release_date.substring(0, 4)
+                : "Año desconocido";
+            const participation = person.role === "actor"
+                ? movie.character || "Reparto"
+                : person.role === "creator" ? "Creación" : "Dirección";
+
+            return `
+                <button type="button"
+                        class="filmography-movie explorer-progressive-item"
+                        data-explorer-group="filmography"
+                        data-filmography-movie-id="${movie.id}"
+                        data-media-type="${movie.media_type}"
+                        ${index >= EXPLORER_PAGE_SIZE ? "hidden" : ""}>
+                    ${posterUrl
+                        ? `<img src="${posterUrl}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
+                        : `<span class="filmography-movie__placeholder">🎞️</span>`
+                    }
+                    <span class="filmography-movie__info">
+                        <strong>${escapeHtml(movie.title)}</strong>
+                        <small>${getContentTypeLabel(movie)} · ${escapeHtml(year)} · ${escapeHtml(participation)}</small>
+                    </span>
+                </button>
+            `;
+        }).join("")
+        : `<p class="explorer-empty">${emptyMessage}</p>`;
+
+    return `
+        <section class="person-filmography">
+            <button type="button" class="filmography-back">← Volver a la ficha</button>
+            <header class="person-filmography__header">
+                ${profileUrl
+                    ? `<img src="${profileUrl}" alt="Foto de ${escapeHtml(person.name)}">`
+                    : `<span class="person-filmography__placeholder" aria-hidden="true">👤</span>`
+                }
+                <div>
+                    <span>${roleLabel}</span>
+                    <h2>${escapeHtml(person.name)}</h2>
+                    <p>${movies.length} ${movies.length === 1 ? "título encontrado" : "títulos encontrados"}</p>
+                </div>
+            </header>
+            <div class="filmography-grid">${movieCards}</div>
+            ${movies.length > EXPLORER_PAGE_SIZE
+                ? `<button type="button" class="explorer-load-more" data-explorer-target="filmography" data-item-label="títulos">
+                       Cargar más títulos (${movies.length - EXPLORER_PAGE_SIZE})
+                   </button>`
+                : ""
+            }
+        </section>
+    `;
+}
+
 // Convierte las clasificaciones estadounidenses de TMDB en una edad orientativa.
 // `null` distingue una clasificación desconocida de una apta para todo público.
 function getMinimumAge(certification) {
+
+    certification = String(certification || "").trim().toUpperCase();
 
     if (certification === "G") {
         return 0;
@@ -553,17 +1410,42 @@ function getMinimumAge(certification) {
         return 18;
     }
 
+    if (certification === "TV-Y" || certification === "TV-G") {
+        return 0;
+    }
+
+    if (certification === "TV-Y7") {
+        return 7;
+    }
+
+    if (certification === "TV-PG") {
+        return 8;
+    }
+
+    if (certification === "TV-14") {
+        return 14;
+    }
+
+    if (certification === "TV-MA") {
+        return 17;
+    }
+
     return null;
 }
 
-// Consulta las fechas de estreno para obtener la clasificación y dibuja la ficha.
-async function showMovieDetails(selectedMovie, age) {
+// Consulta las rutas correspondientes y dibuja una ficha común para películas y series.
+async function showContentDetails(selectedMovie, age) {
+
+    selectedMovie = normalizeContent(selectedMovie);
 
     const movieId = selectedMovie.id;
+    const mediaType = selectedMovie.media_type;
+    const contentLabel = getContentTypeLabel(selectedMovie);
+    const contentPath = `${API_BASE_URL}/${mediaType}/${movieId}`;
 
     const title = selectedMovie.title;
     const releaseDate = selectedMovie.release_date;
-    const overview = selectedMovie.overview;
+    let overview = selectedMovie.overview;
     const posterPath = selectedMovie.poster_path;
     const voteAverage = selectedMovie.vote_average;
 
@@ -577,21 +1459,30 @@ async function showMovieDetails(selectedMovie, age) {
         ? `https://image.tmdb.org/t/p/w500${posterPath}`
         : "";
 
-    // TMDB entrega la puntuación sobre diez; se limita a un decimal para simplificarla.
-    const tmdbRating = voteAverage > 0
-        ? `⭐ ${voteAverage.toFixed(1)}/10`
-        : "Sin votos";
+    // TMDB entrega la puntuación sobre diez; se traduce a un porcentaje para el aro del póster.
+    const numericTmdbRating = Number(voteAverage) || 0;
+    const ratingProgress = Math.max(0, Math.min(100, Math.round(numericTmdbRating * 10)));
+    const ratingState = numericTmdbRating <= 0
+        ? "unavailable"
+        : numericTmdbRating >= 7
+            ? "good"
+            : numericTmdbRating >= 5 ? "average" : "bad";
+    const ratingColor = ratingState === "good"
+        ? "#22c55e"
+        : ratingState === "average"
+            ? "#f59e0b"
+            : ratingState === "bad" ? "#ef4444" : "#64748b";
+    const ratingDisplay = numericTmdbRating > 0 ? numericTmdbRating.toFixed(1) : "—";
 
 
-    const certificationUrl =
-        `${API_BASE_URL}/movie/${movieId}/release-dates`;
-    const creditsUrl = `${API_BASE_URL}/movie/${movieId}/credits`;
-    const detailsUrl = `${API_BASE_URL}/movie/${movieId}/details`;
-    const translationsUrl = `${API_BASE_URL}/movie/${movieId}/translations`;
-    const watchProvidersUrl = `${API_BASE_URL}/movie/${movieId}/watch-providers`;
-    const recommendationsUrl = `${API_BASE_URL}/movie/${movieId}/recommendations`;
-    const similarUrl = `${API_BASE_URL}/movie/${movieId}/similar`;
-    const videosUrl = `${API_BASE_URL}/movie/${movieId}/videos`;
+    const certificationUrl = `${contentPath}/release-dates`;
+    const creditsUrl = `${contentPath}/credits`;
+    const detailsUrl = `${contentPath}/details`;
+    const translationsUrl = `${contentPath}/translations`;
+    const watchProvidersUrl = `${contentPath}/watch-providers`;
+    const recommendationsUrl = `${contentPath}/recommendations`;
+    const similarUrl = `${contentPath}/similar`;
+    const videosUrl = `${contentPath}/videos`;
 
     // Las consultas son independientes, por eso se ejecutan en paralelo.
     const responses = await Promise.all([
@@ -606,16 +1497,17 @@ async function showMovieDetails(selectedMovie, age) {
     ]);
 
     if (responses.some(function(response) { return !response.ok; })) {
-        throw new Error("No fue posible cargar toda la información de la película.");
+        throw new Error("No fue posible cargar toda la información del título.");
     }
 
     const [certificationData, creditsData, detailsData, translationsData, providersData,
         recommendationsData, similarData, summaryVideosData] =
         await Promise.all(responses.map(function(response) { return response.json(); }));
+    overview = detailsData.overview || overview;
 
     // Las películas de una colección tienen prioridad sobre las demás sugerencias.
     let collectionData = null;
-    if (detailsData.belongs_to_collection?.id) {
+    if (mediaType === "movie" && detailsData.belongs_to_collection?.id) {
         const collectionResponse = await fetch(
             `${API_BASE_URL}/collection/${detailsData.belongs_to_collection.id}`
         );
@@ -623,7 +1515,7 @@ async function showMovieDetails(selectedMovie, age) {
     }
 
 
-    // Se usa Estados Unidos porque las equivalencias de edad de arriba son G/PG/R.
+    // El Worker presenta clasificaciones de cine y TV con la misma estructura por país.
     const usRelease = certificationData.results.find(function(country) {
 
         return country.iso_3166_1 === "US";
@@ -635,21 +1527,20 @@ async function showMovieDetails(selectedMovie, age) {
 
 
     if (usRelease) {
+        const recognizedCertifications = usRelease.release_dates
+            .map(function(release) {
+                return String(release.certification || "").trim().toUpperCase();
+            })
+            .filter(function(value) {
+                return getMinimumAge(value) !== null;
+            });
 
-        // Algunos estrenos (festival, cine o digital) llegan sin certificación.
-        const certifiedRelease = usRelease.release_dates.find(function(release) {
-
-            return release.certification !== "";
-
-        });
-
-
-        if (certifiedRelease) {
-
-            certification = certifiedRelease.certification;
-
+        // Ante clasificaciones distintas entre estrenos, usa la más restrictiva.
+        if (recognizedCertifications.length > 0) {
+            certification = recognizedCertifications.reduce(function(current, next) {
+                return getMinimumAge(next) > getMinimumAge(current) ? next : current;
+            });
         }
-
     }
 
     // Se muestran los primeros seis intérpretes según el orden enviado por TMDB.
@@ -664,26 +1555,33 @@ async function showMovieDetails(selectedMovie, age) {
                 : "";
 
             return `
-                <article class="cast-member">
+                <button type="button" class="cast-member person-filmography-trigger"
+                        data-person-id="${actor.id}"
+                        data-person-name="${escapeHtml(actor.name)}"
+                        data-person-role="actor"
+                        data-person-profile="${escapeHtml(actor.profile_path || "")}">
                     ${profileUrl
-                        ? `<img src="${profileUrl}" alt="Foto de ${actor.name}" loading="lazy">`
+                        ? `<img src="${profileUrl}" alt="Foto de ${escapeHtml(actor.name)}" loading="lazy">`
                         : `<div class="cast-member__placeholder" aria-hidden="true">👤</div>`
                     }
                     <div class="cast-member__info">
-                        <strong>${actor.name}</strong>
-                        <span>${actor.character || "Personaje no disponible"}</span>
+                        <strong>${escapeHtml(actor.name)}</strong>
+                        <span>${escapeHtml(actor.character || "Personaje no disponible")}</span>
                     </div>
-                </article>
+                    <span class="person-filmography-hint">Ver filmografía →</span>
+                </button>
             `;
         }).join("")
         : `<p class="cast-empty">Reparto no disponible.</p>`;
 
-    // El equipo técnico puede contener más de un director, por ejemplo en codirecciones.
-    const directors = Array.isArray(creditsData.crew)
-        ? creditsData.crew
-            .filter(function(member) { return member.job === "Director"; })
-            .slice(0, 2)
-        : [];
+    // En series se muestran sus creadores; en películas, la dirección acreditada.
+    const directors = mediaType === "tv" && Array.isArray(detailsData.created_by)
+        ? detailsData.created_by.slice(0, 2).map(function(creator) {
+            return { ...creator, job: "Creador" };
+        })
+        : Array.isArray(creditsData.crew)
+            ? creditsData.crew.filter(function(member) { return member.job === "Director"; }).slice(0, 2)
+            : [];
     const directorsMarkup = directors.length > 0
         ? directors.map(function(director) {
             const directorPhotoUrl = director.profile_path
@@ -691,19 +1589,24 @@ async function showMovieDetails(selectedMovie, age) {
                 : "";
 
             return `
-                <article class="director-profile">
+                <button type="button" class="director-profile person-filmography-trigger"
+                        data-person-id="${director.id}"
+                        data-person-name="${escapeHtml(director.name)}"
+                        data-person-role="${mediaType === "tv" ? "creator" : "director"}"
+                        data-person-profile="${escapeHtml(director.profile_path || "")}">
                     ${directorPhotoUrl
-                        ? `<img class="director-profile__photo" src="${directorPhotoUrl}" alt="Foto de ${director.name}" loading="lazy">`
+                        ? `<img class="director-profile__photo" src="${directorPhotoUrl}" alt="Foto de ${escapeHtml(director.name)}" loading="lazy">`
                         : `<div class="director-profile__placeholder" aria-hidden="true">🎬</div>`
                     }
                     <div class="director-profile__info">
-                        <strong>${director.name}</strong>
-                        <span>Director</span>
+                        <strong>${escapeHtml(director.name)}</strong>
+                        <span>${mediaType === "tv" ? "Creador" : "Director"}</span>
                     </div>
-                </article>
+                    <span class="person-filmography-hint">Ver títulos →</span>
+                </button>
             `;
         }).join("")
-        : `<p class="context-value">Director no disponible.</p>`;
+        : `<p class="context-value">${mediaType === "tv" ? "Creación no disponible." : "Dirección no disponible."}</p>`;
 
     const countries = Array.isArray(detailsData.production_countries)
         ? detailsData.production_countries.slice(0, 3)
@@ -713,16 +1616,22 @@ async function showMovieDetails(selectedMovie, age) {
             const countryCode = country.iso_3166_1.toLowerCase();
 
             return `
-                <span class="country-chip">
+                <button type="button"
+                        class="country-chip country-search-trigger"
+                        data-country-code="${escapeHtml(country.iso_3166_1)}"
+                        data-country-name="${escapeHtml(country.name)}"
+                        aria-label="Buscar películas y series de ${escapeHtml(country.name)}"
+                        title="Ver títulos de ${escapeHtml(country.name)}">
                     <img
                         class="country-chip__flag"
                         src="https://flagcdn.com/w40/${countryCode}.png"
                         srcset="https://flagcdn.com/w80/${countryCode}.png 2x"
-                        alt="Bandera de ${country.name}"
+                        alt="Bandera de ${escapeHtml(country.name)}"
                         loading="lazy"
                     >
-                    <span>${country.name}</span>
-                </span>
+                    <span>${escapeHtml(country.name)}</span>
+                    <span class="country-chip__action" aria-hidden="true">⌕</span>
+                </button>
             `;
         }).join("")
         : `<span class="context-value">No disponible</span>`;
@@ -743,7 +1652,10 @@ async function showMovieDetails(selectedMovie, age) {
         })
         : [];
     const languagesMarkup = renderChips(spokenLanguages, "No disponibles");
-    const collectionName = detailsData.belongs_to_collection?.name || "No pertenece a una saga";
+    const collectionName = mediaType === "tv"
+        ? `${detailsData.maxicheck_number_of_seasons || "—"} temporadas · ${detailsData.maxicheck_number_of_episodes || "—"} episodios`
+        : detailsData.belongs_to_collection?.name || "No pertenece a una saga";
+    const collectionTitle = mediaType === "tv" ? "Temporadas y episodios" : "Saga o colección";
 
     const translations = Array.isArray(translationsData.translations)
         ? translationsData.translations
@@ -777,8 +1689,10 @@ async function showMovieDetails(selectedMovie, age) {
         if (!Array.isArray(items)) return;
 
         items.forEach(function(item) {
-            if (item.id === movieId || relatedMovieMap.has(item.id) || !item.title) return;
-            relatedMovieMap.set(item.id, { ...item, recommendationReason: reason });
+            const normalizedItem = normalizeContent(item, mediaType);
+            const itemKey = getContentKey(normalizedItem);
+            if (isSameContent(normalizedItem, selectedMovie) || relatedMovieMap.has(itemKey) || !normalizedItem.title) return;
+            relatedMovieMap.set(itemKey, { ...normalizedItem, recommendationReason: reason });
         });
     }
 
@@ -800,7 +1714,7 @@ async function showMovieDetails(selectedMovie, age) {
                 : "Sin puntuación";
 
             return `
-                <button type="button" class="related-movie" data-related-id="${relatedMovie.id}">
+                <button type="button" class="related-movie" data-related-id="${relatedMovie.id}" data-media-type="${relatedMovie.media_type}">
                     ${relatedPoster
                         ? `<img src="${relatedPoster}" alt="Póster de ${escapeHtml(relatedMovie.title)}" loading="lazy">`
                         : `<span class="related-movie__placeholder">Sin imagen</span>`
@@ -808,14 +1722,14 @@ async function showMovieDetails(selectedMovie, age) {
                     <span class="related-movie__content">
                         <span class="related-movie__reason">${escapeHtml(relatedMovie.recommendationReason)}</span>
                         <strong>${escapeHtml(relatedMovie.title)}</strong>
-                        <small>${relatedYear} · ⭐ ${relatedScore}</small>
+                        <small>${getContentTypeLabel(relatedMovie)} · ${relatedYear} · ⭐ ${relatedScore}</small>
                     </span>
                 </button>
             `;
         }).join("")
-        : `<p class="related-empty">Todavía no encontramos recomendaciones para esta película.</p>`;
-    const initiallySaved = movieIsSaved(movieId);
-    const tmdbMovieUrl = `https://www.themoviedb.org/movie/${movieId}?language=es-ES`;
+        : `<p class="related-empty">Todavía no encontramos recomendaciones para este título.</p>`;
+    const initiallySaved = movieIsSaved(movieId, mediaType);
+    const tmdbMovieUrl = `https://www.themoviedb.org/${mediaType}/${movieId}?language=es-ES`;
     const imdbMovieUrl = detailsData.imdb_id
         ? `https://www.imdb.com/title/${encodeURIComponent(detailsData.imdb_id)}/`
         : "";
@@ -826,6 +1740,15 @@ async function showMovieDetails(selectedMovie, age) {
     ].filter(Boolean).join(" ");
     const filmAffinityUrl =
         `https://www.filmaffinity.com/es/search.php?stext=${encodeURIComponent(filmAffinityQuery)}&stype=title`;
+    const externalSearchQuery = [title, year === "Año desconocido" ? "" : year]
+        .filter(Boolean)
+        .join(" ");
+    const imdbSearchUrl =
+        `https://www.imdb.com/find/?q=${encodeURIComponent(externalSearchQuery)}&s=tt`;
+    const rottenTomatoesUrl =
+        `https://www.rottentomatoes.com/search?search=${encodeURIComponent(externalSearchQuery)}`;
+    const metacriticUrl =
+        `https://www.metacritic.com/search/${encodeURIComponent(externalSearchQuery)}/`;
     const availableVideos = Array.isArray(summaryVideosData.results)
         ? summaryVideosData.results.filter(function(video) { return video.site === "YouTube"; })
         : [];
@@ -843,7 +1766,7 @@ async function showMovieDetails(selectedMovie, age) {
 
     const minimumAge = getMinimumAge(certification);
     const ageGuidance = minimumAge === null
-        ? "No hay una edad orientativa disponible para esta película."
+        ? "No hay una edad orientativa disponible para este título."
         : minimumAge === 0
             ? "Referencia de MaxiCheck: apta para todas las edades."
             : `Referencia de MaxiCheck: recomendada desde los ${minimumAge} años.`;
@@ -883,7 +1806,11 @@ async function showMovieDetails(selectedMovie, age) {
     // Actualiza la barra superior antes de dibujar el resto de la ficha.
     recommendationSummary.innerHTML = `
         <span class="recommendation-summary__main">${recommendation}</span>
-        <span class="recommendation-summary__age">${ageGuidance}</span>
+        <span class="recommendation-summary__age">
+            <span>Edad consultada: <strong>${age} años</strong></span>
+            <span class="recommendation-summary__separator" aria-hidden="true">•</span>
+            <span>${ageGuidance}</span>
+        </span>
     `;
     recommendationSummary.className =
         `recommendation-summary ${recommendationClass}`;
@@ -896,25 +1823,57 @@ async function showMovieDetails(selectedMovie, age) {
     headerRecommendation.title = recommendation;
     headerRecommendation.setAttribute("aria-label", recommendation);
 
-    headerCertification.textContent = certification;
+    headerCertification.innerHTML = `
+        <span class="header-certification__label">Clasificación</span>
+        <strong>${escapeHtml(certification)}</strong>
+    `;
     headerCertification.className =
         `header-certification ${getCertificationClass(certification)}`;
     headerCertification.hidden = false;
     headerCertification.title = `Clasificación ${certification}`;
     headerCertification.setAttribute("aria-label", `Clasificación ${certification}`);
 
+    // El menú superior abre la ficha exacta cuando existe o una búsqueda por título y año.
+    filmAffinityNavLink.href = filmAffinityUrl;
+    filmAffinityNavLink.title = `Buscar ${title} en FilmAffinity`;
+    filmAffinityNavLink.setAttribute("aria-label", `Buscar ${title} en FilmAffinity`);
+    imdbNavLink.href = imdbMovieUrl || imdbSearchUrl;
+    imdbNavLink.title = `Consultar ${title} en IMDb`;
+    imdbNavLink.setAttribute("aria-label", `Consultar ${title} en IMDb`);
+    rottenTomatoesNavLink.href = rottenTomatoesUrl;
+    rottenTomatoesNavLink.title = `Buscar ${title} en Rotten Tomatoes`;
+    rottenTomatoesNavLink.setAttribute("aria-label", `Buscar ${title} en Rotten Tomatoes`);
+    metacriticNavLink.href = metacriticUrl;
+    metacriticNavLink.title = `Buscar ${title} en Metacritic`;
+    metacriticNavLink.setAttribute("aria-label", `Buscar ${title} en Metacritic`);
+
     // El acceso a la exploración se ubica bajo el póster y se carga solo al solicitarlo.
     result.innerHTML = `
-        <h2 class="movie-title">${title}</h2>
+        <div class="movie-title-row">
+            <span class="selected-content-type">${getContentTypeLabel(detailsData, true)}</span>
+            <h2 class="movie-title">${escapeHtml(title)}</h2>
+            <button type="button" class="copy-movie-title" aria-label="Copiar el título ${escapeHtml(title)}">
+                <span aria-hidden="true">⧉</span>
+            </button>
+        </div>
 
         <div class="movie-poster-zone">
-            ${posterUrl
-                ? `<img class="movie-poster" src="${posterUrl}" alt="Poster de ${title}" width="250">`
-                : `<div class="movie-poster-placeholder">Póster no disponible</div>`
-            }
+            <div class="movie-poster-frame">
+                ${posterUrl
+                    ? `<img class="movie-poster" src="${posterUrl}" alt="Póster de ${escapeHtml(title)}" width="250">`
+                    : `<div class="movie-poster-placeholder">Póster no disponible</div>`
+                }
+                <div class="poster-rating poster-rating--${ratingState}"
+                     style="--rating-progress: ${ratingProgress}%; --rating-color: ${ratingColor};"
+                     role="img"
+                     aria-label="Puntuación de TMDB: ${ratingDisplay} de 10">
+                    <strong>${ratingDisplay}</strong>
+                    <small>TMDB</small>
+                </div>
+            </div>
             <button type="button" class="explore-movie-button">
                 <span class="explore-movie-button__icon" aria-hidden="true">▦</span>
-                <span><strong>Explorar película</strong><small>Galería, tráileres y ficha completa</small></span>
+                <span><strong>Explorar ${mediaType === "tv" ? "serie" : "película"}</strong><small>Galería, tráileres y ficha completa</small></span>
             </button>
             ${trailerUrl
                 ? `<a class="poster-trailer-button" href="${trailerUrl}" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">▶</span><span>Ver tráiler</span></a>`
@@ -927,31 +1886,9 @@ async function showMovieDetails(selectedMovie, age) {
             <p class="poster-actions-status" role="status" aria-live="polite"></p>
         </div>
 
-        <div class="movie-metadata">
-            <p class="metadata-card">
-                <span class="metadata-card__label">Año</span>
-                <strong class="metadata-card__value">${year}</strong>
-            </p>
-
-            <p class="metadata-card">
-                <span class="metadata-card__label">Edad consultada</span>
-                <strong class="metadata-card__value">${age} años</strong>
-            </p>
-
-            <p class="metadata-card metadata-card--rating">
-                <span class="metadata-card__label">Clasificación</span>
-                <strong class="metadata-card__value">${certification}</strong>
-            </p>
-
-            <p class="metadata-card metadata-card--score">
-                <span class="metadata-card__label">Puntuación TMDB</span>
-                <strong class="metadata-card__value">${tmdbRating}</strong>
-            </p>
-        </div>
-
         <div class="movie-context">
             <section class="context-card" aria-labelledby="director-title">
-                <h3 id="director-title">Dirección</h3>
+                <h3 id="director-title">${mediaType === "tv" ? "Creación" : "Dirección"}</h3>
                 <div class="director-list">${directorsMarkup}</div>
             </section>
             <section class="context-card" aria-labelledby="countries-title">
@@ -959,8 +1896,11 @@ async function showMovieDetails(selectedMovie, age) {
                 <div class="country-list">${countriesMarkup}</div>
             </section>
             <section class="context-card" aria-labelledby="runtime-title">
-                <h3 id="runtime-title">Duración</h3>
-                <p class="context-value">⏱ ${runtime}</p>
+                <h3 id="runtime-title">Duración y año</h3>
+                <div class="runtime-year">
+                    <span><small>${mediaType === "tv" ? "Por episodio" : "Duración"}</small><strong>⏱ ${runtime}</strong></span>
+                    <span><small>Año</small><strong>📅 ${year}</strong></span>
+                </div>
             </section>
             <section class="context-card" aria-labelledby="genres-title">
                 <h3 id="genres-title">Géneros</h3>
@@ -975,13 +1915,13 @@ async function showMovieDetails(selectedMovie, age) {
                 <div class="info-chip-list">${languagesMarkup}</div>
             </section>
             <section class="context-card" aria-labelledby="collection-title">
-                <h3 id="collection-title">Saga o colección</h3>
+                <h3 id="collection-title">${collectionTitle}</h3>
                 <p class="context-value">${collectionName}</p>
             </section>
             <section class="context-card context-card--titles" aria-labelledby="titles-title">
                 <h3 id="titles-title">Otros títulos</h3>
                 <dl class="alternate-titles">
-                    <div><dt>Original</dt><dd>${detailsData.original_title || "No disponible"}</dd></div>
+                    <div><dt>Original</dt><dd>${escapeHtml(detailsData.original_title || "No disponible")}</dd></div>
                     <div><dt>Inglés</dt><dd>${englishTitle}</dd></div>
                     <div><dt>España</dt><dd>${spainTitle}</dd></div>
                 </dl>
@@ -1001,7 +1941,7 @@ async function showMovieDetails(selectedMovie, age) {
             </div>
             ${providersMarkup
                 ? `<div class="provider-groups">${providersMarkup}</div>`
-                : `<p class="providers-empty">No encontramos plataformas disponibles para esta película.</p>`
+                : `<p class="providers-empty">No encontramos plataformas disponibles para este título.</p>`
             }
             <p class="provider-attribution">Información de disponibilidad proporcionada por JustWatch mediante TMDB.</p>
         </section>
@@ -1021,7 +1961,7 @@ async function showMovieDetails(selectedMovie, age) {
         <section class="movie-recommendations" aria-labelledby="recommendations-title">
             <div class="movie-recommendations__heading">
                 <h3 id="recommendations-title">También podría gustarte</h3>
-                <p>Basadas en la saga, afinidad de TMDB y géneros similares.</p>
+                <p>Basadas en ${mediaType === "tv" ? "afinidad de TMDB y géneros similares" : "la saga, afinidad de TMDB y géneros similares"}.</p>
             </div>
             <div class="related-movies-grid">${relatedMoviesMarkup}</div>
         </section>
@@ -1029,15 +1969,13 @@ async function showMovieDetails(selectedMovie, age) {
         <section class="movie-actions" aria-labelledby="movie-actions-title">
             <div>
                 <h3 id="movie-actions-title">Compartir y enlaces oficiales</h3>
-                <p>Comparte la película o consulta sus fuentes externas.</p>
+                <p>Comparte este título o consulta su información oficial.</p>
             </div>
             <div class="movie-actions__buttons">
                 <button type="button" class="movie-action movie-action--share">
                     <span aria-hidden="true">↗</span><span>Compartir</span>
                 </button>
                 <a class="movie-action" href="${tmdbMovieUrl}" target="_blank" rel="noopener noreferrer">TMDB</a>
-                ${imdbMovieUrl ? `<a class="movie-action" href="${imdbMovieUrl}" target="_blank" rel="noopener noreferrer">IMDb</a>` : ""}
-                <a class="movie-action" href="${filmAffinityUrl}" target="_blank" rel="noopener noreferrer">FilmAffinity</a>
                 ${officialMovieUrl ? `<a class="movie-action" href="${escapeHtml(officialMovieUrl)}" target="_blank" rel="noopener noreferrer">Sitio oficial</a>` : ""}
             </div>
             <p class="movie-actions__status" role="status" aria-live="polite"></p>
@@ -1046,6 +1984,115 @@ async function showMovieDetails(selectedMovie, age) {
 
     let summaryMarkup = result.innerHTML;
     let explorerCache = null;
+
+    function bindPersonCards() {
+        const personCards = result.querySelectorAll(".person-filmography-trigger");
+
+        personCards.forEach(function(personCard) {
+            personCard.addEventListener("click", async function() {
+                const person = {
+                    id: Number(personCard.dataset.personId),
+                    name: personCard.dataset.personName,
+                    role: personCard.dataset.personRole,
+                    profilePath: personCard.dataset.personProfile
+                };
+                const hint = personCard.querySelector(".person-filmography-hint");
+                personCard.disabled = true;
+                if (hint) hint.textContent = "Cargando…";
+
+                try {
+                    const creditsResponse = await fetch(
+                        `${API_BASE_URL}/person/${person.id}/combined-credits`
+                    );
+                    if (!creditsResponse.ok) throw new Error("No fue posible cargar la filmografía.");
+
+                    const personCredits = await creditsResponse.json();
+                    const sourceMovies = person.role === "director"
+                        ? (personCredits.crew || []).filter(function(movie) {
+                            return movie.job === "Director";
+                        })
+                        : person.role === "creator"
+                            ? (personCredits.crew || []).filter(function(content) {
+                                return ["Creator", "Executive Producer", "Writer"].includes(content.job);
+                            })
+                        : personCredits.cast || [];
+                    const uniqueMovies = Array.from(new Map(sourceMovies
+                        .filter(function(movie) {
+                            return movie.id && movie.title;
+                        })
+                        .map(function(movie) {
+                            const normalized = normalizeContent(movie);
+                            return [getContentKey(normalized), normalized];
+                        })).values())
+                        .sort(function(first, second) {
+                            return String(second.release_date || "").localeCompare(
+                                String(first.release_date || "")
+                            );
+                        });
+
+                    if (!result.contains(personCard)) return;
+
+                    result.innerHTML = renderPersonFilmography(person, uniqueMovies);
+                    const filmographyView = result.querySelector(".person-filmography");
+                    bindExplorerPagination(filmographyView);
+
+                    filmographyView.querySelector(".filmography-back").addEventListener("click", function() {
+                        result.innerHTML = summaryMarkup;
+                        bindExploreButton();
+                        bindPersonCards();
+                        bindCountrySearch();
+                        bindRelatedMovies();
+                        bindMovieActions();
+                        result.scrollIntoView({ behavior: "smooth", block: "start" });
+                    });
+
+                    filmographyView.addEventListener("click", async function(event) {
+                        const movieButton = event.target.closest(".filmography-movie");
+                        if (!movieButton) return;
+
+                        const selectedId = Number(movieButton.dataset.filmographyMovieId);
+                        const selectedType = movieButton.dataset.mediaType || "movie";
+                        const selectedFilm = uniqueMovies.find(function(movie) {
+                            return movie.id === selectedId && movie.media_type === selectedType;
+                        });
+                        if (!selectedFilm) return;
+
+                        result.innerHTML = `<p class="loading-message">Cargando título…</p>`;
+                        try {
+                            await showContentDetails(selectedFilm, age);
+                        } catch (error) {
+                            result.innerHTML = `<p class="detail-error">No pudimos cargar este título.</p>`;
+                        }
+                    });
+
+                    result.scrollIntoView({ behavior: "smooth", block: "start" });
+                } catch (error) {
+                    personCard.disabled = false;
+                    if (hint) hint.textContent = "No se pudo cargar · Reintentar";
+                }
+            });
+        });
+    }
+
+    // Convierte cada país de producción en una búsqueda paginada de películas y series.
+    function bindCountrySearch() {
+        result.querySelectorAll(".country-search-trigger").forEach(function(countryButton) {
+            countryButton.addEventListener("click", function() {
+                const countryCode = String(countryButton.dataset.countryCode || "").toUpperCase();
+                const countryName = countryButton.dataset.countryName || countryCode;
+                if (!/^[A-Z]{2}$/.test(countryCode)) return;
+
+                showCatalog({
+                    mode: "advanced",
+                    navigationId: "nav-advanced",
+                    parameters: { country: countryCode },
+                    eyebrow: "Catálogo por país",
+                    title: `Títulos de ${countryName}`,
+                    description: `Películas, series y documentales asociados con ${countryName}, ordenados por popularidad.`
+                });
+            });
+        });
+    }
 
     function bindExploreButton() {
         const exploreButton = result.querySelector(".explore-movie-button");
@@ -1059,7 +2106,7 @@ async function showMovieDetails(selectedMovie, age) {
             try {
                 if (!explorerCache) {
                     const explorerResponse = await fetch(
-                        `${API_BASE_URL}/movie/${movieId}/explore`
+                        `${API_BASE_URL}/${mediaType}/${movieId}/explore`
                     );
 
                     if (!explorerResponse.ok) {
@@ -1081,9 +2128,14 @@ async function showMovieDetails(selectedMovie, age) {
                 if (!result.contains(exploreButton)) return;
 
                 result.innerHTML = renderExplorerMarkup(explorerCache);
+                const explorerView = result.querySelector(".movie-explorer");
+                bindExplorerPagination(explorerView);
+                bindSeriesSeasons(explorerView, movieId);
                 result.querySelector(".explorer-back").addEventListener("click", function() {
                     result.innerHTML = summaryMarkup;
                     bindExploreButton();
+                    bindPersonCards();
+                    bindCountrySearch();
                     bindRelatedMovies();
                     bindMovieActions();
                     result.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1106,14 +2158,17 @@ async function showMovieDetails(selectedMovie, age) {
             if (!relatedButton) return;
 
             const relatedId = Number(relatedButton.dataset.relatedId);
-            const relatedMovie = relatedMovies.find(function(item) { return item.id === relatedId; });
+            const relatedType = relatedButton.dataset.mediaType || mediaType;
+            const relatedMovie = relatedMovies.find(function(item) {
+                return item.id === relatedId && item.media_type === relatedType;
+            });
             if (!relatedMovie) return;
 
             result.innerHTML = `<p class="loading-message">Cargando recomendación…</p>`;
             result.scrollIntoView({ behavior: "smooth", block: "start" });
 
             try {
-                await showMovieDetails(relatedMovie, age);
+                await showContentDetails(relatedMovie, age);
             } catch (error) {
                 result.innerHTML = `<p class="detail-error">No pudimos cargar esta recomendación.</p>`;
             }
@@ -1125,9 +2180,40 @@ async function showMovieDetails(selectedMovie, age) {
         if (!actionsSection) return;
 
         const saveButton = result.querySelector(".movie-action--save");
+        const copyTitleButton = result.querySelector(".copy-movie-title");
         const shareButton = actionsSection.querySelector(".movie-action--share");
         const status = actionsSection.querySelector(".movie-actions__status");
         const posterStatus = result.querySelector(".poster-actions-status");
+
+        copyTitleButton.addEventListener("click", async function() {
+            try {
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(title);
+                } else {
+                    const temporaryInput = document.createElement("textarea");
+                    temporaryInput.value = title;
+                    temporaryInput.style.position = "fixed";
+                    temporaryInput.style.opacity = "0";
+                    document.body.appendChild(temporaryInput);
+                    temporaryInput.select();
+                    document.execCommand("copy");
+                    temporaryInput.remove();
+                }
+
+                copyTitleButton.classList.add("copy-movie-title--copied");
+                copyTitleButton.setAttribute("aria-label", "Título copiado");
+                copyTitleButton.innerHTML = `<span aria-hidden="true">✓</span>`;
+                setTimeout(function() {
+                    if (!copyTitleButton.isConnected) return;
+                    copyTitleButton.classList.remove("copy-movie-title--copied");
+                    copyTitleButton.setAttribute("aria-label", `Copiar el título ${title}`);
+                    copyTitleButton.innerHTML = `<span aria-hidden="true">⧉</span>`;
+                }, 1800);
+            } catch (error) {
+                copyTitleButton.setAttribute("aria-label", "No se pudo copiar el título");
+                copyTitleButton.innerHTML = `<span aria-hidden="true">!</span>`;
+            }
+        });
 
         saveButton.addEventListener("click", function() {
             try {
@@ -1136,18 +2222,21 @@ async function showMovieDetails(selectedMovie, age) {
                     title,
                     poster_path: posterPath,
                     release_date: releaseDate,
-                    vote_average: voteAverage
+                    vote_average: voteAverage,
+                    overview,
+                    media_type: mediaType,
+                    maxicheck_is_documentary: selectedMovie.maxicheck_is_documentary
                 });
                 updateSavedListButton();
                 if (!savedListPanel.hidden) renderSavedList();
                 saveButton.setAttribute("aria-pressed", String(wasSaved));
                 saveButton.innerHTML = `<span aria-hidden="true">${wasSaved ? "♥" : "♡"}</span><span>${wasSaved ? "Guardada en Mi lista" : "Guardar en Mi lista"}</span>`;
                 posterStatus.textContent = wasSaved
-                    ? "Película guardada en este navegador."
-                    : "Película eliminada de tus guardadas.";
+                    ? `${contentLabel} guardada en este navegador.`
+                    : `${contentLabel} eliminada de tus guardadas.`;
                 summaryMarkup = result.innerHTML;
             } catch (error) {
-                posterStatus.textContent = "El navegador no permitió guardar la película.";
+                posterStatus.textContent = "El navegador no permitió guardar este título.";
             }
         });
 
@@ -1161,7 +2250,7 @@ async function showMovieDetails(selectedMovie, age) {
             try {
                 if (navigator.share) {
                     await navigator.share(shareData);
-                    status.textContent = "Película compartida.";
+                    status.textContent = "Título compartido.";
                 } else {
                     await navigator.clipboard.writeText(
                         `${shareData.text} ${shareData.url}`
@@ -1170,41 +2259,43 @@ async function showMovieDetails(selectedMovie, age) {
                 }
             } catch (error) {
                 // Cancelar el menú de compartir no debe mostrarse como un error grave.
-                status.textContent = "No se compartió la película.";
+                status.textContent = "No se compartió el título.";
             }
         });
     }
 
     bindExploreButton();
+    bindPersonCards();
+    bindCountrySearch();
     bindRelatedMovies();
     bindMovieActions();
 
 }
 
 
-// Descubre muchas películas compatibles con la edad y carga páginas progresivamente.
+// Descubre películas, series y documentales compatibles con la edad indicada.
 async function showAgeRecommendations(age) {
     const firstResponse = await fetch(`${API_BASE_URL}/discover?age=${age}&page=1`);
     if (!firstResponse.ok) throw new Error("No fue posible obtener recomendaciones.");
 
     const firstPage = await firstResponse.json();
-    let movies = [...firstPage.results];
+    let movies = (firstPage.results || []).map(normalizeContent);
     const initialResultsLimit = 6;
-    const totalResults = firstPage.total_results;
     const totalPages = firstPage.total_pages;
     let currentPage = firstPage.page;
     let visibleResultsLimit = initialResultsLimit;
     let isLoadingNextPage = false;
 
-    showSearchResultsCount(totalResults);
+    showSearchResultsCount(movies.length);
 
     function renderRecommendations() {
         const visibleMovies = movies.slice(0, visibleResultsLimit);
+        showSearchResultsCount(movies.length);
         searchResults.innerHTML = `
             <div class="age-recommendations-heading">
                 <span>Recomendaciones por edad</span>
-                <h2>Películas recomendadas para ${age} años</h2>
-                <p>Ordenadas por popularidad y limitadas a clasificaciones compatibles con la edad.</p>
+                <h2>Títulos recomendados para ${age} años</h2>
+                <p>Películas, series y documentales con clasificación estadounidense verificada individualmente.</p>
             </div>
         `;
 
@@ -1220,14 +2311,16 @@ async function showAgeRecommendations(age) {
                 : "Sin puntuación";
 
             searchResults.innerHTML += `
-                <button type="button" class="movie-option" data-movie-id="${movie.id}">
+                <button type="button" class="movie-option" data-movie-id="${movie.id}" data-media-type="${movie.media_type}">
                     ${poster
                         ? `<img src="${poster}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
                         : `<div class="no-poster">Sin imagen</div>`
                     }
                     <div class="movie-option-info">
+                        <span class="movie-option-type">${getContentTypeLabel(movie, true)}</span>
                         <span class="movie-option-title">${escapeHtml(movie.title)}</span>
                         <span class="movie-option-year">${year} · ${score}</span>
+                        <span class="movie-option-certification">${escapeHtml(movie.maxicheck_certification || "Verificada")}</span>
                     </div>
                 </button>
             `;
@@ -1246,7 +2339,7 @@ async function showAgeRecommendations(age) {
                     }
                     ${canCollapse ? `<button type="button" class="collapse-results">Ver menos</button>` : ""}
                     ${hasMorePages && !hasLoadedHiddenResults
-                        ? `<button type="button" class="load-more-results">Cargar más (${movies.length} de ${totalResults})</button>`
+                        ? `<button type="button" class="load-more-results">Cargar más recomendaciones</button>`
                         : ""
                     }
                 </div>
@@ -1286,9 +2379,9 @@ async function showAgeRecommendations(age) {
                 );
                 if (!nextResponse.ok) throw new Error("No fue posible cargar más.");
                 const nextPage = await nextResponse.json();
-                const knownIds = new Set(movies.map(function(movie) { return movie.id; }));
-                movies = movies.concat(nextPage.results.filter(function(movie) {
-                    return !knownIds.has(movie.id);
+                const knownIds = new Set(movies.map(getContentKey));
+                movies = movies.concat((nextPage.results || []).map(normalizeContent).filter(function(movie) {
+                    return !knownIds.has(getContentKey(movie));
                 }));
                 currentPage = nextPage.page;
                 visibleResultsLimit = movies.length;
@@ -1304,7 +2397,10 @@ async function showAgeRecommendations(age) {
 
         if (movieButton) {
             const movieId = Number(movieButton.dataset.movieId);
-            const selectedMovie = movies.find(function(movie) { return movie.id === movieId; });
+            const mediaType = movieButton.dataset.mediaType || "movie";
+            const selectedMovie = movies.find(function(movie) {
+                return movie.id === movieId && movie.media_type === mediaType;
+            });
             if (!selectedMovie) return;
 
             openedFromSavedList = false;
@@ -1313,18 +2409,20 @@ async function showAgeRecommendations(age) {
             backButton.hidden = false;
             form.classList.add("form--detail");
             hideSearchResultsCount();
-            result.innerHTML = `<p class="loading-message">Cargando película recomendada…</p>`;
+            result.innerHTML = `<p class="loading-message">Cargando recomendación…</p>`;
 
             try {
-                await showMovieDetails(selectedMovie, age);
+                await showContentDetails(selectedMovie, age);
             } catch (error) {
-                result.innerHTML = `<p class="detail-error">No pudimos cargar esta película.</p>`;
+                result.innerHTML = `<p class="detail-error">No pudimos cargar este título.</p>`;
             }
         }
     };
 }
 
 recommendAgeButton.addEventListener("click", async function() {
+    catalogRequestVersion += 1;
+    setActiveNavigation("nav-home");
     const age = Number(ageInput.value);
 
     if (!Number.isInteger(age) || age < 1 || age > 120) {
@@ -1342,7 +2440,7 @@ recommendAgeButton.addEventListener("click", async function() {
     hideSearchResultsCount();
     result.innerHTML = "";
     searchResults.style.display = "grid";
-    searchResults.innerHTML = `<p class="recommendations-loading">Buscando películas para tu edad…</p>`;
+    searchResults.innerHTML = `<p class="recommendations-loading">Buscando películas, series y documentales para tu edad…</p>`;
     recommendAgeButton.disabled = true;
 
     try {
@@ -1359,6 +2457,8 @@ recommendAgeButton.addEventListener("click", async function() {
 form.addEventListener("submit", async function(event) {
 
     event.preventDefault();
+    catalogRequestVersion += 1;
+    setActiveNavigation("nav-home");
     openedFromSavedList = false;
 
     resultToolbar.hidden = true;
@@ -1385,7 +2485,7 @@ form.addEventListener("submit", async function(event) {
     if (data.results.length === 0) {
 
         searchResults.innerHTML = `
-            <p>No encontramos ninguna película con ese nombre.</p>
+            <p>No encontramos ninguna película, serie o documental con ese nombre.</p>
         `;
 
         result.innerHTML = "";
@@ -1395,7 +2495,7 @@ form.addEventListener("submit", async function(event) {
 
 
     // Conserva las páginas cargadas para regresar al listado sin repetir peticiones.
-    let movies = [...data.results];
+    let movies = (data.results || []).map(normalizeContent);
     const initialResultsLimit = 6;
     const totalResults = data.total_results;
     const totalPages = data.total_pages;
@@ -1438,6 +2538,7 @@ form.addEventListener("submit", async function(event) {
                 type="button"
                 class="movie-option"
                 data-movie-id="${movieResult.id}"
+                data-media-type="${movieResult.media_type}"
             >
                 ${
                     posterUrl
@@ -1446,6 +2547,7 @@ form.addEventListener("submit", async function(event) {
                 }
 
                 <div class="movie-option-info">
+                    <span class="movie-option-type">${getContentTypeLabel(movieResult, true)}</span>
                     <span class="movie-option-title">${title}</span>
                     <span class="movie-option-year">${year}</span>
                 </div>
@@ -1526,9 +2628,9 @@ form.addEventListener("submit", async function(event) {
                 }
 
                 const nextPageData = await nextPageResponse.json();
-                const knownMovieIds = new Set(movies.map(function(item) { return item.id; }));
-                const newMovies = nextPageData.results.filter(function(item) {
-                    return !knownMovieIds.has(item.id);
+                const knownMovieIds = new Set(movies.map(getContentKey));
+                const newMovies = (nextPageData.results || []).map(normalizeContent).filter(function(item) {
+                    return !knownMovieIds.has(getContentKey(item));
                 });
 
                 movies = movies.concat(newMovies);
@@ -1548,11 +2650,12 @@ form.addEventListener("submit", async function(event) {
         if (movieButton) {
 
             const movieId = Number(movieButton.dataset.movieId);
+            const mediaType = movieButton.dataset.mediaType || "movie";
             openedFromSavedList = false;
 
             const selectedMovie = movies.find(function(movieResult) {
 
-                return movieResult.id === movieId;
+                return movieResult.id === movieId && movieResult.media_type === mediaType;
                 
             });
             
@@ -1562,10 +2665,10 @@ form.addEventListener("submit", async function(event) {
             backButton.hidden = false;
             form.classList.add("form--detail");
             hideSearchResultsCount();
-            result.innerHTML = `<p class="loading-message">Cargando información de la película…</p>`;
+            result.innerHTML = `<p class="loading-message">Cargando información del título…</p>`;
 
             try {
-                await showMovieDetails(selectedMovie, age);
+                await showContentDetails(selectedMovie, age);
             } catch (error) {
                 resetHeaderIndicators();
                 recommendationSummary.textContent = "No pudimos cargar todos los detalles.";
