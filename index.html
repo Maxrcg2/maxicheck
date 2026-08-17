@@ -12,31 +12,88 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+    <!-- Banner global fijo: marca, recomendación y clasificación permanecen visibles. -->
+    <header class="brand">
+        <button id="home-button" class="brand__home" type="button" aria-label="Volver al inicio de MaxiCheck">
+            <img class="brand__logo" src="images/maxicheck-logo.png" alt="MaxiCheck — Check before you watch.">
+        </button>
+        <span id="header-results-count" class="header-results-count" role="status" aria-live="polite" hidden></span>
+        <span id="header-recommendation" class="header-recommendation" role="status" hidden></span>
+        <div class="brand__actions">
+            <button id="saved-list-button" class="saved-list-button" type="button" aria-haspopup="dialog" aria-expanded="false">
+                <span aria-hidden="true">♥</span><span>Mi lista</span><strong id="saved-list-count">0</strong>
+            </button>
+            <span id="header-certification" class="header-certification" hidden></span>
+        </div>
+    </header>
+
+    <!-- Panel local de películas guardadas; no necesita registro ni servidor. -->
+    <div id="saved-list-panel" class="saved-list-panel" hidden>
+        <section class="saved-list-dialog" role="dialog" aria-modal="true" aria-labelledby="saved-list-title">
+            <header>
+                <div>
+                    <h2 id="saved-list-title">Mi lista</h2>
+                    <p>Películas guardadas en este navegador.</p>
+                </div>
+                <button id="saved-list-close" type="button" aria-label="Cerrar Mi lista">×</button>
+            </header>
+            <div id="saved-list-content" class="saved-list-content"></div>
+        </section>
+    </div>
+
     <!-- Contenedor principal de la aplicación. -->
     <main>
-        <!-- Cabecera de marca; el texto alternativo conserva el nombre accesible. -->
-        <header class="brand">
-            <img class="brand__logo" src="images/maxicheck-logo.png" alt="MaxiCheck — Check before you watch.">
-        </header>
-
         <!-- Recoge la edad y el título que se buscará en TMDB. -->
         <form id="movie-form">
-            <div>
-                <label for="age">¿Cuántos años tienes?</label>
+            <button id="back-button" type="button" hidden>
+                <span class="back-button__icon" aria-hidden="true">←</span>
+                <span>Volver</span>
+            </button>
+            <div class="form-field--age">
+                <label for="age">Tu edad</label>
                 <input type="number" id="age" min="1" max="120" required>
             </div>
-            <div>
+            <div class="form-field--movie">
                 <label for="movie">¿Qué película quieres ver?</label>
                 <input type="text" id="movie" required>
             </div>
-            <button type="submit">Comprobar película</button>
+            <button class="check-movie-button" type="submit">Comprobar película</button>
+            <button id="recommend-age-button" class="recommend-age-button" type="button">Recomendar para mi edad</button>
         </form>
+
+        <!-- Guía permanente: diferencia la clasificación oficial de la referencia de MaxiCheck. -->
+        <details id="rating-guide" class="rating-guide">
+            <summary>
+                <span class="rating-guide__heading">
+                    <strong>ⓘ Guía de clasificaciones</strong>
+                    <small>Consulta cómo MaxiCheck interpreta cada clasificación.</small>
+                </span>
+                <span class="rating-guide__quick" aria-hidden="true">
+                    <span class="rating-pill rating-pill--g">G</span>
+                    <span class="rating-pill rating-pill--pg">PG</span>
+                    <span class="rating-pill rating-pill--pg13">PG-13</span>
+                    <span class="rating-pill rating-pill--r">R</span>
+                    <span class="rating-pill rating-pill--nc17">NC-17</span>
+                </span>
+            </summary>
+            <div class="rating-guide__content">
+                <div class="rating-guide__grid">
+                    <article><strong>G</strong><span>Público general</span><small>Todas las edades</small></article>
+                    <article><strong>PG</strong><span>Orientación parental recomendada</span><small>Referencia: desde 8 años</small></article>
+                    <article><strong>PG-13</strong><span>Precaución para menores de 13</span><small>Referencia: desde 13 años</small></article>
+                    <article><strong>R</strong><span>Menores de 17 requieren acompañamiento adulto</span><small>Referencia: desde 17 años</small></article>
+                    <article><strong>NC-17</strong><span>No admitida para menores de 18</span><small>Referencia: desde 18 años</small></article>
+                </div>
+                <p class="rating-guide__notice">
+                    Las edades de MaxiCheck son orientativas. La decisión final corresponde al espectador, padre o tutor.
+                </p>
+            </div>
+        </details>
 
         <!-- Coincidencias y ficha seleccionada generadas desde JavaScript. -->
         <section id="search-results" aria-live="polite"></section>
-        <!-- Agrupa la navegación y el diagnóstico para ofrecer una lectura inmediata. -->
+        <!-- El diagnóstico ocupa su propia línea para mantenerse centrado. -->
         <div id="result-toolbar" hidden>
-            <button id="back-button" type="button">← Volver a resultados</button>
             <p id="recommendation-summary" role="status" aria-live="polite"></p>
         </div>
         <section id="result" aria-live="polite"></section>
