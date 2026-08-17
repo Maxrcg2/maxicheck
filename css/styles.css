@@ -3609,6 +3609,24 @@ html[data-theme] .catalog-nav__button--active {
     line-height: 1;
 }
 
+/* El banner continúa oscuro en modo claro; por eso su selector conserva texto e icono luminosos. */
+html[data-theme] .brand__theme-toggle {
+    border-color: rgba(191, 219, 254, 0.25);
+    background: rgba(255, 255, 255, 0.075);
+    color: #f8fafc;
+}
+
+html[data-theme] .brand__theme-toggle:hover {
+    border-color: rgba(147, 197, 253, 0.58);
+    background: rgba(59, 130, 246, 0.18);
+    color: #ffffff;
+}
+
+html[data-theme] .brand__theme-toggle .theme-toggle__icon {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(124, 58, 237, 0.24));
+    color: #dbeafe;
+}
+
 html[data-theme] .catalog-nav__separator {
     background: linear-gradient(to bottom, transparent, var(--theme-border-strong) 22%, var(--theme-border-strong) 78%, transparent);
 }
