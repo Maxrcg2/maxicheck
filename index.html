@@ -36,7 +36,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet">
     <!-- La versión fuerza al navegador a descargar los estilos después de una actualización. -->
-    <link rel="stylesheet" href="css/styles.css?v=20260817-17">
+    <link rel="stylesheet" href="css/styles.css?v=20260817-18">
 </head>
 <body>
     <!-- Banner global fijo: marca, recomendación y clasificación permanecen visibles. -->
@@ -48,6 +48,11 @@
         <span id="header-recommendation" class="header-recommendation" role="status" hidden></span>
         <div class="brand__actions">
             <span id="header-certification" class="header-certification" hidden></span>
+            <!-- El selector visual solo aparece en Inicio; las demás vistas reservan este espacio para la clasificación. -->
+            <button id="theme-toggle" class="brand__theme-toggle theme-toggle" type="button">
+                <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">☾</span>
+                <span data-theme-label>Oscuro</span>
+            </button>
         </div>
     </header>
 
@@ -61,10 +66,6 @@
                 <button id="nav-popular" class="catalog-nav__button" type="button"><span aria-hidden="true">🔥</span><span>Populares</span></button>
                 <button id="nav-advanced" class="catalog-nav__button" type="button" aria-haspopup="dialog"><span aria-hidden="true">⌕</span><span>Búsqueda avanzada</span></button>
                 <button id="saved-list-button" class="catalog-nav__button" type="button" aria-haspopup="dialog" aria-expanded="false"><span aria-hidden="true">♥</span><span>Mi lista</span><strong id="saved-list-count">0</strong></button>
-                <button id="theme-toggle" class="catalog-nav__button theme-toggle" type="button">
-                    <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">☾</span>
-                    <span data-theme-label>Oscuro</span>
-                </button>
             </div>
 
             <span class="catalog-nav__separator" aria-hidden="true"></span>
@@ -240,6 +241,6 @@
 </footer>
     <!-- Se carga al final para que los elementos anteriores ya existan. -->
     <!-- La versión evita reutilizar una copia antigua de la lógica desde la caché. -->
-    <script src="js/app.js?v=20260817-17"></script>
+    <script src="js/app.js?v=20260817-18"></script>
 </body>
 </html>

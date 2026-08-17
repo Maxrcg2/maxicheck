@@ -351,10 +351,41 @@ main {
 
 .brand__actions {
     display: flex;
+    grid-column: 3;
     min-width: 0;
     align-items: center;
     justify-self: end;
     gap: 8px;
+}
+
+/* En Inicio, el selector de tema ocupa el extremo derecho del banner superior. */
+.brand__theme-toggle {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 8px 13px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.055);
+    color: #e5e7eb;
+    font-size: 0.72rem;
+    font-weight: 850;
+    letter-spacing: 0.015em;
+    white-space: nowrap;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.brand__theme-toggle[hidden],
+body.saved-list-open .brand__theme-toggle,
+body.advanced-search-open .brand__theme-toggle {
+    display: none;
+}
+
+.brand__theme-toggle:focus-visible {
+    outline: 3px solid rgba(96, 165, 250, 0.8);
+    outline-offset: 3px;
 }
 
 /* Segunda barra fija dedicada a navegación y descubrimiento. */
@@ -3158,6 +3189,19 @@ form .recommend-age-button:disabled {
     .header-certification strong { font-size: 0.8rem; }
 
     .brand__actions { gap: 5px; }
+
+    .brand__theme-toggle {
+        min-height: 38px;
+        gap: 5px;
+        padding: 6px 9px;
+        border-radius: 10px;
+        font-size: 0.64rem;
+    }
+
+    .brand__theme-toggle .theme-toggle__icon {
+        width: 20px;
+        height: 20px;
+    }
 
     .saved-list-button {
         min-height: 36px;

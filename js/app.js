@@ -89,6 +89,11 @@ function initializeThemeToggle() {
     });
 }
 
+// El control de apariencia pertenece exclusivamente a la portada limpia de Inicio.
+function showThemeToggleOnHome(isHome) {
+    themeToggle.hidden = !isHome;
+}
+
 initializeThemeToggle();
 
 // TMDB usa nombres de campos distintos para películas y series; MaxiCheck los unifica aquí.
@@ -538,6 +543,7 @@ function resetHeaderIndicators() {
 function resetApplication() {
     catalogRequestVersion += 1;
     setActiveNavigation("nav-home");
+    showThemeToggleOnHome(true);
     form.reset();
     form.classList.remove("form--detail");
     backButton.hidden = true;
@@ -571,6 +577,7 @@ homeButton.addEventListener("click", resetApplication);
 navHomeButton.addEventListener("click", resetApplication);
 
 function prepareCatalogView() {
+    showThemeToggleOnHome(false);
     openedFromSavedList = false;
     resultToolbar.hidden = true;
     backButton.hidden = true;
@@ -1435,6 +1442,8 @@ function getMinimumAge(certification) {
 
 // Consulta las rutas correspondientes y dibuja una ficha común para películas y series.
 async function showContentDetails(selectedMovie, age) {
+
+    showThemeToggleOnHome(false);
 
     selectedMovie = normalizeContent(selectedMovie);
 
@@ -2431,6 +2440,8 @@ recommendAgeButton.addEventListener("click", async function() {
         return;
     }
 
+    showThemeToggleOnHome(false);
+
     openedFromSavedList = false;
     resultToolbar.hidden = true;
     backButton.hidden = true;
@@ -2459,6 +2470,7 @@ form.addEventListener("submit", async function(event) {
     event.preventDefault();
     catalogRequestVersion += 1;
     setActiveNavigation("nav-home");
+    showThemeToggleOnHome(false);
     openedFromSavedList = false;
 
     resultToolbar.hidden = true;
