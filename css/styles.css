@@ -862,6 +862,53 @@ body.saved-list-open { overflow: hidden; }
 .saved-movie-status:hover { background: rgba(37, 99, 235, 0.18); }
 .saved-recommendation-add:hover { background: rgba(124, 58, 237, 0.23); }
 
+/* Puntuación y paginación progresiva de las sugerencias creadas desde Mi lista. */
+.saved-recommendation-rating {
+    color: #fde68a;
+    font-size: 0.7rem;
+    font-weight: 900;
+}
+
+.saved-recommendations-content {
+    display: grid;
+    gap: 12px;
+}
+
+.saved-recommendations-pagination {
+    display: flex;
+    justify-content: center;
+}
+
+.saved-recommendations-load-more {
+    width: min(100%, 340px);
+    min-height: 42px;
+    padding: 10px 18px;
+    border: 1px solid rgba(167, 139, 250, 0.42);
+    border-radius: 12px;
+    background: rgba(124, 58, 237, 0.13);
+    color: #ddd6fe;
+    font-size: 0.76rem;
+    font-weight: 800;
+}
+
+.saved-recommendations-load-more:hover {
+    transform: translateY(-2px);
+    border-color: rgba(167, 139, 250, 0.72);
+    background: rgba(124, 58, 237, 0.23);
+}
+
+.saved-recommendations-load-more:disabled {
+    cursor: wait;
+    opacity: 0.72;
+}
+
+.saved-recommendations-status {
+    min-height: 1.25em;
+    color: var(--text-soft);
+    font-size: 0.7rem;
+    text-align: center;
+}
+
 .saved-list-empty {
     display: grid;
     min-height: 300px;
@@ -2233,6 +2280,21 @@ form .recommend-age-button:disabled {
     gap: 12px;
 }
 
+/* Cada recomendación agrupa la ficha navegable y su acción directa de guardado. */
+.related-movie-card,
+.filmography-movie-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.related-movie-card .related-movie,
+.filmography-movie-card .filmography-movie {
+    width: 100%;
+    flex: 1;
+}
+
 .related-movie {
     display: flex;
     min-width: 0;
@@ -2303,6 +2365,74 @@ form .recommend-age-button:disabled {
 .related-movie__content small {
     color: var(--text-soft);
     font-size: 0.69rem;
+}
+
+/* Permite ampliar las recomendaciones por bloques sin saturar la primera vista. */
+.related-pagination {
+    display: flex;
+    justify-content: center;
+    margin-top: 15px;
+}
+
+.related-load-more {
+    width: min(100%, 340px);
+    min-height: 42px;
+    padding: 10px 18px;
+    border: 1px solid rgba(96, 165, 250, 0.38);
+    border-radius: 12px;
+    background: rgba(37, 99, 235, 0.12);
+    color: #bfdbfe;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.related-load-more:hover {
+    transform: translateY(-2px);
+    border-color: rgba(96, 165, 250, 0.72);
+    background: rgba(37, 99, 235, 0.22);
+}
+
+.related-load-more:disabled {
+    cursor: wait;
+    opacity: 0.7;
+}
+
+#result .related-pagination__status,
+#result .filmography-list-status {
+    min-height: 1.25em;
+    margin: 9px 0 0;
+    color: var(--theme-info-text);
+    font-size: 0.7rem;
+    text-align: center;
+}
+
+/* Acción compacta para guardar una película sin abandonar la cuadrícula actual. */
+.quick-list-add {
+    display: inline-flex;
+    width: 100%;
+    min-height: 36px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 9px;
+    border: 1px solid rgba(245, 158, 11, 0.42);
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.14);
+    color: #fde68a;
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+.quick-list-add:hover {
+    transform: translateY(-2px);
+    border-color: rgba(250, 204, 21, 0.78);
+    background: rgba(245, 158, 11, 0.23);
+}
+
+.quick-list-add--saved,
+.quick-list-add:disabled {
+    cursor: default;
+    opacity: 0.82;
 }
 
 #result .related-empty {
@@ -2515,6 +2645,12 @@ form .recommend-age-button:disabled {
     font-size: 0.67rem;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.filmography-movie__rating {
+    color: #facc15;
+    font-size: 0.69rem;
+    font-weight: 900;
 }
 
 #result .cast-member img,
@@ -2830,12 +2966,32 @@ form .recommend-age-button:disabled {
     border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
 }
 
-#result .explorer-episode img,
+.explorer-episode:hover,
+.explorer-episode:focus-visible,
+.explorer-episode[aria-expanded="true"] {
+    outline: none;
+    transform: translateY(-3px);
+    border-color: rgba(96, 165, 250, 0.58);
+    background: rgba(37, 99, 235, 0.11);
+    box-shadow: 0 10px 24px rgba(3, 7, 18, 0.2);
+}
+
+.explorer-episode__image {
+    position: relative;
+    width: 128px;
+    height: 100%;
+    min-height: 118px;
+    overflow: hidden;
+}
+
+#result .explorer-episode__image > img,
 .explorer-episode__placeholder {
     display: grid;
-    width: 128px;
+    width: 100%;
     height: 100%;
     min-height: 118px;
     margin: 0;
@@ -2847,6 +3003,70 @@ form .recommend-age-button:disabled {
     color: #93c5fd;
     font-size: 1.4rem;
 }
+
+/* Versión compacta del aro TMDB del póster, siempre dentro de la imagen. */
+.episode-rating {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    z-index: 2;
+    display: grid;
+    width: 50px;
+    height: 50px;
+    place-content: center;
+    border-radius: 50%;
+    background: conic-gradient(
+        var(--rating-color) 0 var(--rating-progress),
+        rgba(100, 116, 139, 0.32) var(--rating-progress) 100%
+    );
+    color: #f8fafc;
+    text-align: center;
+    filter: drop-shadow(0 5px 8px rgba(0, 0, 0, 0.4));
+    pointer-events: none;
+}
+
+.episode-rating::before {
+    position: absolute;
+    inset: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    background: #111827;
+    content: "";
+}
+
+.episode-rating strong,
+.episode-rating small {
+    position: relative;
+    z-index: 1;
+}
+
+.episode-rating strong {
+    font-size: 0.82rem;
+    line-height: 1;
+}
+
+.episode-rating small {
+    margin-top: 2px;
+    color: #cbd5e1;
+    font-size: 0.38rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+}
+
+.episode-rating--hero {
+    top: 10px;
+    right: 10px;
+    width: 62px;
+    height: 62px;
+}
+
+.episode-rating--hero::before { inset: 5px; }
+.episode-rating--hero strong { font-size: 1rem; }
+.episode-rating--hero small { font-size: 0.44rem; }
+.episode-rating--good strong { color: #bbf7d0; }
+.episode-rating--average strong { color: #fde68a; }
+.episode-rating--bad strong { color: #fecaca; }
+.episode-rating--unavailable strong { color: #cbd5e1; }
 
 .explorer-episode__content {
     display: flex;
@@ -2885,6 +3105,220 @@ form .recommend-age-button:disabled {
     text-align: left;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
+}
+
+.explorer-episode__action {
+    margin-top: auto;
+    color: #93c5fd;
+    font-size: 0.65rem;
+    font-weight: 800;
+}
+
+.explorer-season-episodes-view[hidden],
+.explorer-episode-detail-view[hidden] {
+    display: none;
+}
+
+/* Ficha ampliada que reemplaza temporalmente la cuadrícula de la temporada. */
+.explorer-episode-sheet {
+    display: grid;
+    gap: 18px;
+}
+
+.explorer-episode-back {
+    justify-self: start;
+    padding: 9px 13px;
+    border: 1px solid rgba(96, 165, 250, 0.34);
+    border-radius: 10px;
+    background: rgba(37, 99, 235, 0.1);
+    color: #bfdbfe;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.explorer-episode-back:hover {
+    transform: translateY(-2px);
+    border-color: rgba(96, 165, 250, 0.65);
+    background: rgba(37, 99, 235, 0.2);
+}
+
+.explorer-episode-hero {
+    display: grid;
+    grid-template-columns: minmax(240px, 310px) minmax(0, 1fr);
+    gap: 18px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.explorer-episode-hero__image {
+    position: relative;
+    min-height: 260px;
+    overflow: hidden;
+}
+
+#result .explorer-episode-hero__image > img,
+.explorer-episode-hero__placeholder {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    min-height: inherit;
+    margin: 0;
+    place-items: center;
+    border-radius: 0;
+    background: linear-gradient(145deg, rgba(37, 99, 235, 0.16), rgba(124, 58, 237, 0.16));
+    object-fit: cover;
+    box-shadow: none;
+    color: #93c5fd;
+    font-size: 2.5rem;
+}
+
+.explorer-episode-hero__content {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 11px;
+    justify-content: center;
+    padding: 18px 18px 18px 0;
+}
+
+.explorer-episode-hero__content > span {
+    color: #93c5fd;
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+#result .explorer-episode-hero__content h3 {
+    margin: 0;
+    color: #f8fafc;
+    font-size: clamp(1.25rem, 3vw, 1.8rem);
+}
+
+#result .explorer-episode-hero__content > p {
+    margin: 0;
+    color: #d1d5db;
+    font-size: 0.76rem;
+    line-height: 1.65;
+    text-align: left;
+}
+
+.explorer-episode-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.explorer-episode-meta > span {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.explorer-episode-meta small {
+    color: var(--text-soft);
+    font-size: 0.6rem;
+    font-weight: 700;
+}
+
+.explorer-episode-meta strong {
+    overflow: hidden;
+    color: #f3f4f6;
+    font-size: 0.72rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.explorer-episode-rating--good strong { color: #86efac; }
+.explorer-episode-rating--average strong { color: #fde68a; }
+.explorer-episode-rating--bad strong { color: #fca5a5; }
+.explorer-episode-rating--unavailable strong { color: var(--text-soft); }
+
+.explorer-episode-credits {
+    display: grid;
+    gap: 11px;
+}
+
+.explorer-episode-credits > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.explorer-episode-credits h4 {
+    color: #ddd6fe;
+    font-size: 0.9rem;
+}
+
+.explorer-episode-credits header span {
+    color: var(--text-soft);
+    font-size: 0.68rem;
+}
+
+.explorer-episode-people {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+}
+
+.explorer-episode-person {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 9px;
+    padding: 9px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+#result .explorer-episode-person img,
+.explorer-episode-person__placeholder {
+    display: grid;
+    flex: 0 0 42px;
+    width: 42px;
+    height: 42px;
+    margin: 0;
+    place-items: center;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    object-fit: cover;
+    box-shadow: none;
+}
+
+.explorer-episode-person > span:last-child {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.explorer-episode-person strong,
+.explorer-episode-person small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.explorer-episode-person strong { font-size: 0.72rem; }
+.explorer-episode-person small { color: var(--text-soft); font-size: 0.62rem; }
+
+#result .explorer-episode-people__empty {
+    margin: 0;
+    padding: 14px;
+    border: 1px dashed rgba(255, 255, 255, 0.09);
+    border-radius: 10px;
+    color: var(--text-soft);
+    font-size: 0.72rem;
+    text-align: center;
 }
 
 #result .explorer-season-loading,
@@ -3281,11 +3715,58 @@ form .recommend-age-button:disabled {
         grid-template-columns: 108px minmax(0, 1fr);
     }
 
-    #result .explorer-episode img,
-    .explorer-episode__placeholder {
+    .explorer-episode-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .explorer-episode-hero__image {
+        min-height: 0;
+        aspect-ratio: 16 / 9;
+    }
+
+    #result .explorer-episode-hero__image > img,
+    .explorer-episode-hero__placeholder {
+        min-height: 0;
+    }
+
+    .explorer-episode-hero__content {
+        padding: 0 14px 16px;
+    }
+
+    .explorer-episode-people {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .explorer-episode__image {
         width: 108px;
         min-height: 132px;
     }
+
+    #result .explorer-episode__image > img,
+    .explorer-episode__placeholder {
+        min-height: 132px;
+    }
+
+    .episode-rating {
+        top: 6px;
+        right: 6px;
+        width: 44px;
+        height: 44px;
+    }
+
+    .episode-rating::before { inset: 4px; }
+    .episode-rating strong { font-size: 0.72rem; }
+    .episode-rating small { font-size: 0.34rem; }
+
+    .episode-rating--hero {
+        top: 8px;
+        right: 8px;
+        width: 56px;
+        height: 56px;
+    }
+
+    .episode-rating--hero strong { font-size: 0.9rem; }
+    .episode-rating--hero small { font-size: 0.4rem; }
 
     .explorer-videos,
     .explorer-details,
@@ -3795,6 +4276,7 @@ html[data-theme] #result .explorer-season-error {
 
 html[data-theme] .saved-movie-status,
 html[data-theme] .saved-recommendation-add,
+html[data-theme] .saved-recommendations-load-more,
 html[data-theme] #search-results .catalog-empty,
 html[data-theme] #search-results .catalog-loading {
     color: var(--theme-info-text);
@@ -3802,7 +4284,8 @@ html[data-theme] #search-results .catalog-loading {
 
 html[data-theme] .saved-movie-card--watched .saved-movie-status,
 html[data-theme] .poster-save-button,
-html[data-theme] .saved-list-button {
+html[data-theme] .saved-list-button,
+html[data-theme] .saved-recommendation-rating {
     color: var(--theme-warning-text);
 }
 
@@ -3864,7 +4347,8 @@ html[data-theme] #search-results button:not(.movie-option),
 html[data-theme] #back-button,
 html[data-theme] .filmography-back,
 html[data-theme] .explorer-back,
-html[data-theme] .explorer-load-more {
+html[data-theme] .explorer-load-more,
+html[data-theme] .related-load-more {
     border-color: var(--theme-border-strong);
     background: var(--theme-accent-soft);
     color: var(--theme-purple-text);
@@ -3872,13 +4356,29 @@ html[data-theme] .explorer-load-more {
 
 html[data-theme] #search-results button:not(.movie-option):hover,
 html[data-theme] #back-button:hover,
-html[data-theme] .explorer-load-more:hover {
+html[data-theme] .explorer-load-more:hover,
+html[data-theme] .related-load-more:hover {
     border-color: rgba(124, 58, 237, 0.55);
     background: var(--theme-card-hover);
 }
 
 html[data-theme] .back-button__icon {
     color: var(--theme-purple-text);
+}
+
+html[data-theme] .quick-list-add {
+    border-color: rgba(245, 158, 11, 0.42);
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--theme-warning-text);
+}
+
+html[data-theme] .quick-list-add:hover {
+    border-color: rgba(245, 158, 11, 0.72);
+    background: rgba(245, 158, 11, 0.2);
+}
+
+html[data-theme] .filmography-movie__rating {
+    color: var(--theme-warning-text);
 }
 
 /* Los mensajes de edad mantienen su significado cromático en los tres temas. */
@@ -4040,6 +4540,8 @@ html[data-theme] .explorer-section[open] > summary {
 
 html[data-theme] .explorer-season-card,
 html[data-theme] .explorer-episode,
+html[data-theme] .explorer-episode-hero,
+html[data-theme] .explorer-episode-person,
 html[data-theme] .explorer-video,
 html[data-theme] .explorer-person,
 html[data-theme] .explorer-details div,
@@ -4052,7 +4554,10 @@ html[data-theme] .explorer-releases details {
 
 html[data-theme] .explorer-season-card:hover,
 html[data-theme] .explorer-season-card:focus-visible,
-html[data-theme] .explorer-season-card--active {
+html[data-theme] .explorer-season-card--active,
+html[data-theme] .explorer-episode:hover,
+html[data-theme] .explorer-episode:focus-visible,
+html[data-theme] .explorer-episode[aria-expanded="true"] {
     border-color: var(--theme-border-strong);
     background: var(--theme-card-hover);
     box-shadow: var(--theme-shadow-soft);
@@ -4069,6 +4574,9 @@ html[data-theme] .explorer-season-detail {
 }
 
 html[data-theme] #result .explorer-season-detail__header h3,
+html[data-theme] #result .explorer-episode-hero__content h3,
+html[data-theme] .explorer-episode-meta strong,
+html[data-theme] .explorer-episode-person strong,
 html[data-theme] .explorer-details dd,
 html[data-theme] .explorer-video strong,
 html[data-theme] .explorer-person strong,
@@ -4079,6 +4587,8 @@ html[data-theme] .explorer-episode__content strong {
 html[data-theme] .explorer-season-card__content small,
 html[data-theme] #result .explorer-season-overview,
 html[data-theme] .explorer-episode__content small,
+html[data-theme] .explorer-episode-meta small,
+html[data-theme] .explorer-episode-person small,
 html[data-theme] .explorer-video span,
 html[data-theme] .explorer-details dt,
 html[data-theme] .explorer-person small,
@@ -4091,6 +4601,8 @@ html[data-theme] .explorer-raw > p {
 html[data-theme] .explorer-season-card__content > span,
 html[data-theme] .explorer-season-detail__header span,
 html[data-theme] .explorer-episode__number,
+html[data-theme] .explorer-episode__action,
+html[data-theme] .explorer-episode-hero__content > span,
 html[data-theme] .explorer-video a,
 html[data-theme] .explorer-episode__placeholder,
 html[data-theme] .explorer-section > h3 {
@@ -4099,6 +4611,40 @@ html[data-theme] .explorer-section > h3 {
 
 html[data-theme] #result .explorer-episode__content p {
     color: var(--text);
+}
+
+html[data-theme] #result .explorer-episode-hero__content > p {
+    color: var(--text);
+}
+
+html[data-theme] .explorer-episode-back {
+    border-color: var(--theme-border-strong);
+    background: var(--theme-accent-soft);
+    color: var(--theme-link);
+}
+
+html[data-theme] .explorer-episode-meta > span {
+    border-color: var(--theme-border);
+    background: var(--theme-card-subtle);
+}
+
+html[data-theme] .explorer-episode-rating--good strong { color: var(--theme-success-text); }
+html[data-theme] .explorer-episode-rating--average strong { color: var(--theme-warning-text); }
+html[data-theme] .explorer-episode-rating--bad strong { color: var(--theme-danger-text); }
+html[data-theme] .explorer-episode-rating--unavailable strong { color: var(--text-soft); }
+
+html[data-theme] .explorer-episode-back:hover {
+    border-color: var(--theme-border-strong);
+    background: var(--theme-card-hover);
+}
+
+html[data-theme] .explorer-episode-credits h4 {
+    color: var(--theme-purple-text);
+}
+
+html[data-theme] #result .explorer-episode-people__empty {
+    border-color: var(--theme-border);
+    color: var(--text-soft);
 }
 
 html[data-theme] .explorer-raw pre {
@@ -4130,7 +4676,8 @@ html[data-theme="light"] .watch-providers__heading a {
 }
 
 html[data-theme="light"] .saved-list-section--recommendations .saved-list-section__heading > span,
-html[data-theme="light"] .saved-recommendation-add {
+html[data-theme="light"] .saved-recommendation-add,
+html[data-theme="light"] .saved-recommendations-load-more {
     color: #5b21b6;
 }
 
@@ -4143,6 +4690,7 @@ html[data-theme="light"] #result .explorer-season-error {
 
 html[data-theme="light"] .explorer-hero,
 html[data-theme="light"] .poster-rating,
+html[data-theme="light"] .episode-rating,
 html[data-theme="light"] .explorer-image-type {
     color-scheme: dark;
 }

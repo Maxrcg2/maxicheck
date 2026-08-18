@@ -39,8 +39,11 @@ let currentResultsCount = 0;
 let openedFromSavedList = false;
 let currentNavigationId = "nav-home";
 let catalogRequestVersion = 0;
+let detailBackAction = null;
 const SAVED_MOVIES_KEY = "maxicheck-saved-movies";
 const THEME_STORAGE_KEY = "maxicheck-theme";
+const RELATED_RESULTS_PAGE_SIZE = 6;
+const SAVED_RECOMMENDATIONS_PAGE_SIZE = 12;
 const THEME_OPTIONS = [
     { id: "dark", label: "Oscuro", icon: "☾" },
     { id: "dim", label: "Penumbra", icon: "◐" },
@@ -49,6 +52,12 @@ const THEME_OPTIONS = [
 let savedListRecommendations = [];
 let savedRecommendationsCacheKey = "";
 let savedListRenderVersion = 0;
+let savedRecommendationSources = [];
+let savedRecommendationMap = new Map();
+let savedRecommendationExcludedKeys = new Set();
+let savedRecommendationsVisibleLimit = SAVED_RECOMMENDATIONS_PAGE_SIZE;
+let savedRecommendationsLoading = false;
+let savedRecommendationsInitialRequest = null;
 
 // Cambia el tema sin recargar y mantiene sincronizados icono, texto y accesibilidad.
 function applyTheme(themeId, persist = true) {
@@ -171,6 +180,40 @@ function toggleSavedMovie(movie) {
     return existingIndex < 0;
 }
 
+// Añade un título a pendientes sin eliminarlo si ya estaba guardado.
+function addMovieToSavedList(movie) {
+    const savedMovies = getSavedMovies();
+    const normalizedMovie = normalizeContent(movie);
+    if (savedMovies.some(function(item) { return isSameContent(item, normalizedMovie); })) return false;
+
+    savedMovies.unshift({
+        id: normalizedMovie.id,
+        title: normalizedMovie.title,
+        poster_path: normalizedMovie.poster_path,
+        release_date: normalizedMovie.release_date,
+        vote_average: normalizedMovie.vote_average,
+        overview: normalizedMovie.overview,
+        media_type: normalizedMovie.media_type,
+        maxicheck_is_documentary: normalizedMovie.maxicheck_is_documentary,
+        listStatus: "pending"
+    });
+    localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(savedMovies));
+    updateSavedListButton();
+    return true;
+}
+
+// Sincroniza todos los botones rápidos que representen el mismo título visible.
+function markQuickSaveButtons(container, movie) {
+    const movieKey = getContentKey(movie);
+    container.querySelectorAll(".quick-list-add").forEach(function(button) {
+        if (button.dataset.contentKey !== movieKey) return;
+        button.disabled = true;
+        button.classList.add("quick-list-add--saved");
+        button.setAttribute("aria-label", `${movie.title} ya está en Mi lista`);
+        button.innerHTML = `<span aria-hidden="true">✓</span><span>En Mi lista</span>`;
+    });
+}
+
 function updateSavedListButton() {
     const total = getSavedMovies().length;
     savedListCount.textContent = String(total);
@@ -227,6 +270,8 @@ function renderSavedRecommendationCard(movie) {
         ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
         : "";
     const year = movie.release_date ? movie.release_date.substring(0, 4) : "Año desconocido";
+    const numericScore = Number(movie.vote_average) || 0;
+    const score = numericScore > 0 ? `TMDB ${numericScore.toFixed(1)}/10` : "TMDB sin puntuación";
 
     return `
         <article class="saved-movie-card saved-movie-card--recommendation">
@@ -238,12 +283,65 @@ function renderSavedRecommendationCard(movie) {
                 <span>
                     <strong>${escapeHtml(movie.title)}</strong>
                     <small>${getContentTypeLabel(movie)} · ${year} · ${escapeHtml(movie.maxicheck_reason || "Recomendada para ti")}</small>
+                    <span class="saved-recommendation-rating">⭐ ${escapeHtml(score)}</span>
                 </span>
             </button>
             <div class="saved-movie-actions">
                 <button type="button" class="saved-recommendation-add" data-add-recommendation-id="${movie.id}" data-media-type="${movie.media_type}">+ Añadir a pendientes</button>
             </div>
         </article>
+    `;
+}
+
+// Combina páginas de distintas películas vistas sin repetir títulos ni sugerir
+// contenido que el usuario ya tenga guardado en pendientes o vistas.
+function mergeSavedRecommendationResults(targetMap, items, sourceMovie, excludedKeys) {
+    (Array.isArray(items) ? items : []).forEach(function(item) {
+        const movie = {
+            ...normalizeContent(item, sourceMovie.media_type),
+            maxicheck_reason: `Porque viste ${sourceMovie.title}`
+        };
+        const contentKey = getContentKey(movie);
+        if (!movie.id || !movie.title || movie.adult === true || excludedKeys.has(contentKey) || targetMap.has(contentKey)) return;
+        targetMap.set(contentKey, movie);
+    });
+}
+
+function refreshSavedRecommendationArray() {
+    savedListRecommendations = Array.from(savedRecommendationMap.values()).sort(function(first, second) {
+        return (second.vote_average || 0) - (first.vote_average || 0);
+    });
+}
+
+function hasMoreSavedRecommendationPages() {
+    return savedRecommendationSources.some(function(source) {
+        return source.page < source.totalPages;
+    });
+}
+
+function renderSavedRecommendationsContent(statusMessage = "") {
+    const recommendationsContent = savedListContent.querySelector(".saved-recommendations-content");
+    if (!recommendationsContent) return;
+
+    const visibleRecommendations = savedListRecommendations.slice(0, savedRecommendationsVisibleLimit);
+    const loadedRemaining = Math.max(0, savedListRecommendations.length - savedRecommendationsVisibleLimit);
+    const canLoadMore = loadedRemaining > 0 || hasMoreSavedRecommendationPages();
+    const cardsMarkup = visibleRecommendations.length > 0
+        ? `<div class="saved-list-grid">${visibleRecommendations.map(renderSavedRecommendationCard).join("")}</div>`
+        : `<p class="saved-list-section__empty">No encontramos recomendaciones nuevas por el momento.</p>`;
+    const loadMoreLabel = loadedRemaining > 0
+        ? `Cargar más recomendaciones (${loadedRemaining})`
+        : "Cargar más recomendaciones";
+
+    recommendationsContent.innerHTML = `
+        ${cardsMarkup}
+        ${canLoadMore
+            ? `<div class="saved-recommendations-pagination">
+                   <button type="button" class="saved-recommendations-load-more">${loadMoreLabel}</button>
+               </div>`
+            : ""
+        }
+        <p class="saved-recommendations-status" role="status" aria-live="polite">${escapeHtml(statusMessage)}</p>
     `;
 }
 
@@ -268,40 +366,97 @@ async function getRecommendationsFromWatched(watchedMovies, allSavedMovies) {
     const watchedKey = watchedMovies.map(getContentKey).sort().join("-");
     const savedKey = allSavedMovies.map(getContentKey).sort().join("-");
     const cacheKey = `${watchedKey}|saved:${savedKey}`;
-    if (cacheKey === savedRecommendationsCacheKey) return savedListRecommendations;
+    if (cacheKey === savedRecommendationsCacheKey) {
+        if (savedRecommendationsInitialRequest) await savedRecommendationsInitialRequest;
+        return savedListRecommendations;
+    }
 
     savedRecommendationsCacheKey = cacheKey;
     savedListRecommendations = [];
+    savedRecommendationSources = [];
+    savedRecommendationMap = new Map();
+    savedRecommendationExcludedKeys = new Set(allSavedMovies.map(getContentKey));
+    savedRecommendationsVisibleLimit = SAVED_RECOMMENDATIONS_PAGE_SIZE;
+    savedRecommendationsLoading = false;
+    savedRecommendationsInitialRequest = null;
     if (watchedMovies.length === 0) return [];
 
-    const responses = await Promise.allSettled(watchedMovies.slice(0, 6).map(async function(movie) {
-        const response = await fetch(`${API_BASE_URL}/${movie.media_type}/${movie.id}/recommendations`);
-        if (!response.ok) return [];
-        const data = await response.json();
-        return (data.results || []).map(function(recommendation) {
-            return { ...normalizeContent(recommendation, movie.media_type), maxicheck_reason: `Porque viste ${movie.title}` };
-        });
+    const requestCacheKey = cacheKey;
+    const sourceStates = watchedMovies.slice(0, 6).map(function(movie) {
+        return { movie, page: 0, totalPages: 1 };
+    });
+    const localRecommendationMap = new Map();
+    const initialRequest = Promise.allSettled(sourceStates.map(async function(source) {
+        const response = await fetch(
+            `${API_BASE_URL}/${source.movie.media_type}/${source.movie.id}/recommendations?page=1`
+        );
+        if (!response.ok) throw new Error("No se pudieron cargar recomendaciones.");
+        return { source, data: await response.json() };
     }));
+    savedRecommendationsInitialRequest = initialRequest;
+    const responses = await initialRequest;
+    if (savedRecommendationsInitialRequest === initialRequest) savedRecommendationsInitialRequest = null;
 
-    const savedIds = new Set(allSavedMovies.map(getContentKey));
-    const recommendationMap = new Map();
     responses.forEach(function(response) {
         if (response.status !== "fulfilled") return;
-        response.value.forEach(function(movie) {
-            const contentKey = getContentKey(movie);
-            if (!movie.id || !movie.title || movie.adult === true || savedIds.has(contentKey) || recommendationMap.has(contentKey)) return;
-            recommendationMap.set(contentKey, movie);
-        });
+        const { source, data } = response.value;
+        source.page = Number(data.page) || 1;
+        source.totalPages = Math.min(500, Math.max(source.page, Number(data.total_pages) || source.page));
+        mergeSavedRecommendationResults(
+            localRecommendationMap,
+            data.results,
+            source.movie,
+            savedRecommendationExcludedKeys
+        );
     });
 
-    if (savedRecommendationsCacheKey !== cacheKey) return savedListRecommendations;
+    if (savedRecommendationsCacheKey !== requestCacheKey) return savedListRecommendations;
 
-    savedListRecommendations = Array.from(recommendationMap.values())
-        .sort(function(first, second) {
-            return (second.vote_average || 0) - (first.vote_average || 0);
-        })
-        .slice(0, 12);
+    savedRecommendationSources = sourceStates;
+    savedRecommendationMap = localRecommendationMap;
+    refreshSavedRecommendationArray();
     return savedListRecommendations;
+}
+
+// Solicita la siguiente página de cada fuente que aún tenga resultados disponibles.
+async function loadMoreSavedRecommendationPages() {
+    const requestCacheKey = savedRecommendationsCacheKey;
+    const availableSources = savedRecommendationSources.filter(function(source) {
+        return source.page < source.totalPages;
+    });
+    const responses = await Promise.allSettled(availableSources.map(async function(source) {
+        const nextPage = source.page + 1;
+        const response = await fetch(
+            `${API_BASE_URL}/${source.movie.media_type}/${source.movie.id}/recommendations?page=${nextPage}`
+        );
+        if (!response.ok) throw new Error("No se pudieron cargar más recomendaciones.");
+        return { source, nextPage, data: await response.json() };
+    }));
+
+    if (savedRecommendationsCacheKey !== requestCacheKey) return { stale: true, successfulPages: 0, addedMovies: 0 };
+
+    const previousTotal = savedRecommendationMap.size;
+    let successfulPages = 0;
+    responses.forEach(function(response) {
+        if (response.status !== "fulfilled") return;
+        successfulPages += 1;
+        const { source, nextPage, data } = response.value;
+        source.page = Number(data.page) || nextPage;
+        source.totalPages = Math.min(500, Math.max(source.page, Number(data.total_pages) || source.page));
+        mergeSavedRecommendationResults(
+            savedRecommendationMap,
+            data.results,
+            source.movie,
+            savedRecommendationExcludedKeys
+        );
+    });
+    refreshSavedRecommendationArray();
+
+    return {
+        stale: false,
+        successfulPages,
+        addedMovies: savedRecommendationMap.size - previousTotal
+    };
 }
 
 async function renderSavedList() {
@@ -331,11 +486,9 @@ async function renderSavedList() {
 
     const recommendations = await getRecommendationsFromWatched(watchedMovies, savedMovies);
     if (renderVersion !== savedListRenderVersion) return;
-    const recommendationsContent = savedListContent.querySelector(".saved-recommendations-content");
-    if (!recommendationsContent) return;
-    recommendationsContent.innerHTML = recommendations.length > 0
-        ? `<div class="saved-list-grid">${recommendations.map(renderSavedRecommendationCard).join("")}</div>`
-        : `<p class="saved-list-section__empty">No encontramos recomendaciones nuevas por el momento.</p>`;
+    renderSavedRecommendationsContent(
+        recommendations.length > 0 ? `${recommendations.length} recomendaciones preparadas.` : ""
+    );
 }
 
 function openSavedList() {
@@ -365,7 +518,51 @@ savedListContent.addEventListener("click", async function(event) {
     const removeButton = event.target.closest(".saved-movie-remove");
     const statusButton = event.target.closest(".saved-movie-status");
     const addRecommendationButton = event.target.closest(".saved-recommendation-add");
+    const loadRecommendationsButton = event.target.closest(".saved-recommendations-load-more");
     const openButton = event.target.closest(".saved-movie-open");
+
+    if (loadRecommendationsButton && !savedRecommendationsLoading) {
+        // Primero revela los títulos ya descargados; solo consulta TMDB cuando
+        // el bloque local se agotó, reduciendo esperas y solicitudes innecesarias.
+        if (savedRecommendationsVisibleLimit < savedListRecommendations.length) {
+            savedRecommendationsVisibleLimit = Math.min(
+                savedListRecommendations.length,
+                savedRecommendationsVisibleLimit + SAVED_RECOMMENDATIONS_PAGE_SIZE
+            );
+            renderSavedRecommendationsContent();
+            return;
+        }
+
+        savedRecommendationsLoading = true;
+        const loadingCacheKey = savedRecommendationsCacheKey;
+        loadRecommendationsButton.disabled = true;
+        loadRecommendationsButton.textContent = "Cargando recomendaciones…";
+        const currentStatus = savedListContent.querySelector(".saved-recommendations-status");
+        if (currentStatus) currentStatus.textContent = "Consultando más páginas en TMDB.";
+
+        try {
+            const loadResult = await loadMoreSavedRecommendationPages();
+            if (loadResult.stale) return;
+
+            savedRecommendationsVisibleLimit = Math.min(
+                savedListRecommendations.length,
+                savedRecommendationsVisibleLimit + SAVED_RECOMMENDATIONS_PAGE_SIZE
+            );
+            const message = loadResult.successfulPages === 0
+                ? "No pudimos cargar más recomendaciones. Inténtalo nuevamente."
+                : loadResult.addedMovies > 0
+                    ? `Se agregaron ${loadResult.addedMovies} recomendaciones nuevas.`
+                    : "No encontramos títulos nuevos en estas páginas.";
+            renderSavedRecommendationsContent(message);
+        } finally {
+            // Una actualización de Mi lista puede iniciar otra carga mientras esta
+            // termina; solo libera el bloqueo perteneciente al mismo conjunto.
+            if (savedRecommendationsCacheKey === loadingCacheKey) {
+                savedRecommendationsLoading = false;
+            }
+        }
+        return;
+    }
 
     if (removeButton) {
         const movieId = Number(removeButton.dataset.removeId);
@@ -539,9 +736,62 @@ function resetHeaderIndicators() {
     resetExternalMovieLinks();
 }
 
+// Guarda los indicadores y enlaces de una ficha para restaurarlos al volver desde una filmografía.
+function captureDetailChrome() {
+    function captureElement(element) {
+        return {
+            hidden: element.hidden,
+            className: element.className,
+            innerHTML: element.innerHTML,
+            title: element.getAttribute("title"),
+            ariaLabel: element.getAttribute("aria-label")
+        };
+    }
+
+    return {
+        resultToolbarHidden: resultToolbar.hidden,
+        recommendationSummary: captureElement(recommendationSummary),
+        headerRecommendation: captureElement(headerRecommendation),
+        headerCertification: captureElement(headerCertification),
+        externalLinks: [filmAffinityNavLink, imdbNavLink, rottenTomatoesNavLink, metacriticNavLink].map(function(link) {
+            return {
+                link,
+                href: link.href,
+                title: link.getAttribute("title"),
+                ariaLabel: link.getAttribute("aria-label")
+            };
+        })
+    };
+}
+
+function restoreDetailChrome(state) {
+    function restoreElement(element, elementState) {
+        element.hidden = elementState.hidden;
+        element.className = elementState.className;
+        element.innerHTML = elementState.innerHTML;
+        if (elementState.title === null) element.removeAttribute("title");
+        else element.setAttribute("title", elementState.title);
+        if (elementState.ariaLabel === null) element.removeAttribute("aria-label");
+        else element.setAttribute("aria-label", elementState.ariaLabel);
+    }
+
+    resultToolbar.hidden = state.resultToolbarHidden;
+    restoreElement(recommendationSummary, state.recommendationSummary);
+    restoreElement(headerRecommendation, state.headerRecommendation);
+    restoreElement(headerCertification, state.headerCertification);
+    state.externalLinks.forEach(function(linkState) {
+        linkState.link.href = linkState.href;
+        if (linkState.title === null) linkState.link.removeAttribute("title");
+        else linkState.link.setAttribute("title", linkState.title);
+        if (linkState.ariaLabel === null) linkState.link.removeAttribute("aria-label");
+        else linkState.link.setAttribute("aria-label", linkState.ariaLabel);
+    });
+}
+
 // Restaura la misma vista limpia que encuentra una persona al abrir MaxiCheck.
 function resetApplication() {
     catalogRequestVersion += 1;
+    detailBackAction = null;
     setActiveNavigation("nav-home");
     showThemeToggleOnHome(true);
     form.reset();
@@ -577,6 +827,7 @@ homeButton.addEventListener("click", resetApplication);
 navHomeButton.addEventListener("click", resetApplication);
 
 function prepareCatalogView() {
+    detailBackAction = null;
     showThemeToggleOnHome(false);
     openedFromSavedList = false;
     resultToolbar.hidden = true;
@@ -1035,6 +1286,124 @@ function formatExplorerDate(value) {
         : date.toLocaleDateString("es-DO", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// Comparte con el póster principal los mismos cortes de color y convierte
+// la nota sobre diez en el porcentaje utilizado por el aro de progreso.
+function getEpisodeRatingPresentation(value) {
+    const numericRating = Number(value) || 0;
+    const state = numericRating <= 0
+        ? "unavailable"
+        : numericRating >= 7 ? "good" : numericRating >= 5 ? "average" : "bad";
+    const color = state === "good"
+        ? "#22c55e"
+        : state === "average" ? "#f59e0b" : state === "bad" ? "#ef4444" : "#64748b";
+
+    return {
+        numericRating,
+        state,
+        color,
+        progress: Math.max(0, Math.min(100, Math.round(numericRating * 10))),
+        display: numericRating > 0 ? numericRating.toFixed(1) : "—"
+    };
+}
+
+function renderEpisodeRatingBadge(value, sizeModifier = "") {
+    const rating = getEpisodeRatingPresentation(value);
+    return `
+        <div class="episode-rating episode-rating--${rating.state} ${sizeModifier}"
+             style="--rating-progress: ${rating.progress}%; --rating-color: ${rating.color};"
+             role="img"
+             aria-label="Puntuación de TMDB del episodio: ${rating.display} de 10">
+            <strong>${rating.display}</strong>
+            <small>TMDB</small>
+        </div>
+    `;
+}
+
+// Crea tarjetas compactas para las personas acreditadas específicamente
+// en un episodio, diferenciando personaje y función técnica.
+function renderEpisodePeople(people, roleProperty, emptyMessage) {
+    if (!Array.isArray(people) || people.length === 0) {
+        return `<p class="explorer-episode-people__empty">${escapeHtml(emptyMessage)}</p>`;
+    }
+
+    return `
+        <div class="explorer-episode-people">
+            ${people.slice(0, 12).map(function(person) {
+                const profileUrl = person.profile_path
+                    ? `https://image.tmdb.org/t/p/w185${person.profile_path}`
+                    : "";
+                const role = person[roleProperty] || person.known_for_department || "Participación no especificada";
+
+                return `
+                    <article class="explorer-episode-person">
+                        ${profileUrl
+                            ? `<img src="${profileUrl}" alt="Foto de ${escapeHtml(person.name)}" loading="lazy">`
+                            : `<span class="explorer-episode-person__placeholder" aria-hidden="true">👤</span>`
+                        }
+                        <span>
+                            <strong>${escapeHtml(person.name || "Nombre no disponible")}</strong>
+                            <small>${escapeHtml(role)}</small>
+                        </span>
+                    </article>
+                `;
+            }).join("")}
+        </div>
+    `;
+}
+
+// Presenta una ficha enfocada sin volver a consultar la temporada: TMDB ya
+// incluye estos créditos y metadatos dentro de cada episodio descargado.
+function renderEpisodeDetail(episode, seasonTitle, seasonNumber) {
+    const episodeNumber = Number(episode.episode_number) || 0;
+    const stillUrl = episode.still_path
+        ? `https://image.tmdb.org/t/p/w780${episode.still_path}`
+        : "";
+    const runtime = Number(episode.runtime) > 0 ? `${episode.runtime} minutos` : "No disponible";
+    const ratingPresentation = getEpisodeRatingPresentation(episode.vote_average);
+    const rating = ratingPresentation.numericRating > 0
+        ? `${ratingPresentation.display}/10`
+        : "Sin puntuación";
+    const guestStars = Array.isArray(episode.guest_stars) ? episode.guest_stars : [];
+    const crew = Array.isArray(episode.crew) ? episode.crew : [];
+
+    return `
+        <section class="explorer-episode-sheet" aria-label="Ficha ampliada del episodio ${episodeNumber}">
+            <button type="button" class="explorer-episode-back">← Volver a los episodios</button>
+            <div class="explorer-episode-hero">
+                <div class="explorer-episode-hero__image">
+                    ${stillUrl
+                        ? `<img src="${stillUrl}" alt="Imagen de ${escapeHtml(episode.name || `episodio ${episodeNumber}`)}">`
+                        : `<span class="explorer-episode-hero__placeholder" aria-hidden="true">▶</span>`
+                    }
+                    ${renderEpisodeRatingBadge(episode.vote_average, "episode-rating--hero")}
+                </div>
+                <div class="explorer-episode-hero__content">
+                    <span>${escapeHtml(seasonTitle)} · S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}</span>
+                    <h3 tabindex="-1">${escapeHtml(episode.name || "Título no disponible")}</h3>
+                    <div class="explorer-episode-meta">
+                        <span><small>Emisión</small><strong>${escapeHtml(formatExplorerDate(episode.air_date))}</strong></span>
+                        <span><small>Duración</small><strong>${escapeHtml(runtime)}</strong></span>
+                        <span class="explorer-episode-rating explorer-episode-rating--${ratingPresentation.state}"><small>Nota TMDB</small><strong>${escapeHtml(rating)}</strong></span>
+                        ${episode.production_code
+                            ? `<span><small>Código</small><strong>${escapeHtml(episode.production_code)}</strong></span>`
+                            : ""
+                        }
+                    </div>
+                    <p>${escapeHtml(episode.overview || "TMDB no ofrece una sinopsis para este episodio.")}</p>
+                </div>
+            </div>
+            <section class="explorer-episode-credits">
+                <header><h4>Reparto invitado</h4><span>${guestStars.length} ${guestStars.length === 1 ? "persona" : "personas"}</span></header>
+                ${renderEpisodePeople(guestStars, "character", "No hay reparto invitado disponible para este episodio.")}
+            </section>
+            <section class="explorer-episode-credits">
+                <header><h4>Equipo técnico</h4><span>${crew.length} ${crew.length === 1 ? "persona" : "personas"}</span></header>
+                ${renderEpisodePeople(crew, "job", "No hay información del equipo técnico para este episodio.")}
+            </section>
+        </section>
+    `;
+}
+
 // Dibuja los datos de una temporada y limita inicialmente sus episodios a doce.
 function renderSeasonEpisodes(season) {
     const episodes = Array.isArray(season.episodes) ? season.episodes : [];
@@ -1049,23 +1418,35 @@ function renderSeasonEpisodes(season) {
                 ? `https://image.tmdb.org/t/p/w300${episode.still_path}`
                 : "";
             const runtime = Number(episode.runtime) > 0 ? `${episode.runtime} min` : "Duración no disponible";
-            const rating = Number(episode.vote_average) > 0
-                ? `${Number(episode.vote_average).toFixed(1)}/10`
+            const ratingPresentation = getEpisodeRatingPresentation(episode.vote_average);
+            const rating = ratingPresentation.numericRating > 0
+                ? `${ratingPresentation.display}/10`
                 : "Sin puntuación";
 
             return `
                 <article class="explorer-episode explorer-progressive-item"
+                         role="button"
+                         tabindex="0"
+                         aria-expanded="false"
+                         aria-controls="explorer-episode-detail-${seasonNumber}"
+                         aria-label="Abrir la ficha del episodio ${escapeHtml(episode.episode_number || index + 1)}: ${escapeHtml(episode.name || "Título no disponible")}"
+                         data-season-number="${seasonNumber}"
+                         data-episode-index="${index}"
                          data-explorer-group="${groupName}"
                          ${index >= EXPLORER_PAGE_SIZE ? "hidden" : ""}>
-                    ${stillUrl
-                        ? `<img src="${stillUrl}" alt="Imagen del episodio ${episode.episode_number}" loading="lazy">`
-                        : `<span class="explorer-episode__placeholder" aria-hidden="true">▶</span>`
-                    }
+                    <div class="explorer-episode__image">
+                        ${stillUrl
+                            ? `<img src="${stillUrl}" alt="Imagen del episodio ${episode.episode_number}" loading="lazy">`
+                            : `<span class="explorer-episode__placeholder" aria-hidden="true">▶</span>`
+                        }
+                        ${renderEpisodeRatingBadge(episode.vote_average)}
+                    </div>
                     <div class="explorer-episode__content">
                         <span class="explorer-episode__number">Episodio ${escapeHtml(episode.episode_number || index + 1)}</span>
                         <strong>${escapeHtml(episode.name || "Título no disponible")}</strong>
                         <small>${escapeHtml(formatExplorerDate(episode.air_date))} · ${escapeHtml(runtime)} · ${escapeHtml(rating)}</small>
                         <p>${escapeHtml(episode.overview || "Sinopsis no disponible.")}</p>
+                        <span class="explorer-episode__action">Ver ficha completa →</span>
                     </div>
                 </article>
             `;
@@ -1073,24 +1454,31 @@ function renderSeasonEpisodes(season) {
         : `<p class="explorer-empty">No hay episodios disponibles para esta temporada.</p>`;
 
     return `
-        <header class="explorer-season-detail__header">
-            <div>
-                <span>Temporada seleccionada</span>
-                <h3>${escapeHtml(seasonTitle)}</h3>
-            </div>
-            <strong>${episodes.length} ${episodes.length === 1 ? "episodio" : "episodios"}</strong>
-        </header>
-        <p class="explorer-season-overview">${escapeHtml(overview)}</p>
-        <div class="explorer-episodes">${episodesMarkup}</div>
-        ${episodes.length > EXPLORER_PAGE_SIZE
-            ? `<button type="button"
-                       class="explorer-load-more"
-                       data-explorer-target="${groupName}"
-                       data-item-label="episodios">
-                   Cargar más episodios (${episodes.length - EXPLORER_PAGE_SIZE})
-               </button>`
-            : ""
-        }
+        <div class="explorer-season-episodes-view">
+            <header class="explorer-season-detail__header">
+                <div>
+                    <span>Temporada seleccionada</span>
+                    <h3>${escapeHtml(seasonTitle)}</h3>
+                </div>
+                <strong>${episodes.length} ${episodes.length === 1 ? "episodio" : "episodios"}</strong>
+            </header>
+            <p class="explorer-season-overview">${escapeHtml(overview)}</p>
+            <div class="explorer-episodes">${episodesMarkup}</div>
+            ${episodes.length > EXPLORER_PAGE_SIZE
+                ? `<button type="button"
+                           class="explorer-load-more"
+                           data-explorer-target="${groupName}"
+                           data-item-label="episodios">
+                       Cargar más episodios (${episodes.length - EXPLORER_PAGE_SIZE})
+                   </button>`
+                : ""
+            }
+        </div>
+        <div id="explorer-episode-detail-${seasonNumber}"
+             class="explorer-episode-detail-view"
+             role="region"
+             aria-live="polite"
+             hidden></div>
     `;
 }
 
@@ -1103,7 +1491,62 @@ function bindSeriesSeasons(container, seriesId) {
     const seasonCache = new Map();
     let selectedSeasonNumber = null;
 
+    // Los artículos con rol de botón también responden a teclado.
+    seasonsSection.addEventListener("keydown", function(event) {
+        const episodeCard = event.target.closest(".explorer-episode[role='button']");
+        if (!episodeCard || !["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        episodeCard.click();
+    });
+
     seasonsSection.addEventListener("click", async function(event) {
+        const episodeBackButton = event.target.closest(".explorer-episode-back");
+        if (episodeBackButton) {
+            const detailView = episodeBackButton.closest(".explorer-episode-detail-view");
+            const episodesView = seasonDetail.querySelector(".explorer-season-episodes-view");
+            const episodeIndex = detailView?.dataset.episodeIndex;
+            if (!detailView || !episodesView) return;
+
+            detailView.hidden = true;
+            detailView.innerHTML = "";
+            episodesView.hidden = false;
+            const sourceCard = episodesView.querySelector(`.explorer-episode[data-episode-index="${episodeIndex}"]`);
+            if (sourceCard) {
+                sourceCard.setAttribute("aria-expanded", "false");
+                sourceCard.focus({ preventScroll: true });
+                sourceCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+            return;
+        }
+
+        const episodeCard = event.target.closest(".explorer-episode[role='button']");
+        if (episodeCard) {
+            const seasonNumber = Number(episodeCard.dataset.seasonNumber);
+            const episodeIndex = Number(episodeCard.dataset.episodeIndex);
+            const season = seasonCache.get(seasonNumber);
+            const episodes = Array.isArray(season?.episodes) ? season.episodes : [];
+            const episode = episodes[episodeIndex];
+            const episodesView = seasonDetail.querySelector(".explorer-season-episodes-view");
+            const detailView = seasonDetail.querySelector(".explorer-episode-detail-view");
+            if (!episode || !episodesView || !detailView) return;
+
+            seasonsSection.querySelectorAll(".explorer-episode[aria-expanded='true']").forEach(function(card) {
+                card.setAttribute("aria-expanded", "false");
+            });
+            episodeCard.setAttribute("aria-expanded", "true");
+            detailView.dataset.episodeIndex = String(episodeIndex);
+            detailView.innerHTML = renderEpisodeDetail(
+                episode,
+                season.name || (seasonNumber === 0 ? "Especiales" : `Temporada ${seasonNumber}`),
+                seasonNumber
+            );
+            episodesView.hidden = true;
+            detailView.hidden = false;
+            detailView.querySelector("h3")?.focus({ preventScroll: true });
+            detailView.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            return;
+        }
+
         const seasonButton = event.target.closest(".explorer-season-card");
         if (!seasonButton) return;
 
@@ -1345,23 +1788,39 @@ function renderPersonFilmography(person, movies) {
             const participation = person.role === "actor"
                 ? movie.character || "Reparto"
                 : person.role === "creator" ? "Creación" : "Dirección";
+            const numericScore = Number(movie.vote_average) || 0;
+            const score = numericScore > 0 ? `${numericScore.toFixed(1)}/10` : "Sin puntuación";
+            const isSaved = movieIsSaved(movie.id, movie.media_type);
+            const movieKey = getContentKey(movie);
 
             return `
-                <button type="button"
-                        class="filmography-movie explorer-progressive-item"
-                        data-explorer-group="filmography"
-                        data-filmography-movie-id="${movie.id}"
-                        data-media-type="${movie.media_type}"
-                        ${index >= EXPLORER_PAGE_SIZE ? "hidden" : ""}>
-                    ${posterUrl
-                        ? `<img src="${posterUrl}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
-                        : `<span class="filmography-movie__placeholder">🎞️</span>`
-                    }
-                    <span class="filmography-movie__info">
-                        <strong>${escapeHtml(movie.title)}</strong>
-                        <small>${getContentTypeLabel(movie)} · ${escapeHtml(year)} · ${escapeHtml(participation)}</small>
-                    </span>
-                </button>
+                <article class="filmography-movie-card explorer-progressive-item"
+                         data-explorer-group="filmography"
+                         ${index >= EXPLORER_PAGE_SIZE ? "hidden" : ""}>
+                    <button type="button"
+                            class="filmography-movie"
+                            data-filmography-movie-id="${movie.id}"
+                            data-media-type="${movie.media_type}">
+                        ${posterUrl
+                            ? `<img src="${posterUrl}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
+                            : `<span class="filmography-movie__placeholder">🎞️</span>`
+                        }
+                        <span class="filmography-movie__info">
+                            <strong>${escapeHtml(movie.title)}</strong>
+                            <small>${getContentTypeLabel(movie)} · ${escapeHtml(year)} · ${escapeHtml(participation)}</small>
+                            <span class="filmography-movie__rating">⭐ ${escapeHtml(score)}</span>
+                        </span>
+                    </button>
+                    <button type="button"
+                            class="quick-list-add filmography-list-add ${isSaved ? "quick-list-add--saved" : ""}"
+                            data-content-key="${escapeHtml(movieKey)}"
+                            data-save-id="${movie.id}"
+                            data-media-type="${movie.media_type}"
+                            aria-label="${isSaved ? `${escapeHtml(movie.title)} ya está en Mi lista` : `Agregar ${escapeHtml(movie.title)} a Mi lista`}"
+                            ${isSaved ? "disabled" : ""}>
+                        <span aria-hidden="true">${isSaved ? "✓" : "+"}</span><span>${isSaved ? "En Mi lista" : "Agregar a Mi lista"}</span>
+                    </button>
+                </article>
             `;
         }).join("")
         : `<p class="explorer-empty">${emptyMessage}</p>`;
@@ -1381,6 +1840,7 @@ function renderPersonFilmography(person, movies) {
                 </div>
             </header>
             <div class="filmography-grid">${movieCards}</div>
+            <p class="filmography-list-status" role="status" aria-live="polite"></p>
             ${movies.length > EXPLORER_PAGE_SIZE
                 ? `<button type="button" class="explorer-load-more" data-explorer-target="filmography" data-item-label="títulos">
                        Cargar más títulos (${movies.length - EXPLORER_PAGE_SIZE})
@@ -1441,9 +1901,10 @@ function getMinimumAge(certification) {
 }
 
 // Consulta las rutas correspondientes y dibuja una ficha común para películas y series.
-async function showContentDetails(selectedMovie, age) {
+async function showContentDetails(selectedMovie, age, options = {}) {
 
     showThemeToggleOnHome(false);
+    detailBackAction = typeof options.onBack === "function" ? options.onBack : null;
 
     selectedMovie = normalizeContent(selectedMovie);
 
@@ -1709,9 +2170,24 @@ async function showContentDetails(selectedMovie, age) {
     addRelatedMovies(recommendationsData.results, "Recomendada por TMDB");
     addRelatedMovies(similarData.results, "Géneros similares");
 
-    const relatedMovies = Array.from(relatedMovieMap.values()).slice(0, 6);
-    const relatedMoviesMarkup = relatedMovies.length > 0
-        ? relatedMovies.map(function(relatedMovie) {
+    let relatedMovies = Array.from(relatedMovieMap.values());
+    let visibleRelatedLimit = RELATED_RESULTS_PAGE_SIZE;
+    let recommendationsPage = Number(recommendationsData.page) || 1;
+    let recommendationsTotalPages = Number(recommendationsData.total_pages) || 1;
+    let similarPage = Number(similarData.page) || 1;
+    let similarTotalPages = Number(similarData.total_pages) || 1;
+    let relatedPageIsLoading = false;
+
+    function hasMoreRelatedPages() {
+        return recommendationsPage < recommendationsTotalPages || similarPage < similarTotalPages;
+    }
+
+    function renderRelatedMoviesMarkup() {
+        if (relatedMovies.length === 0) {
+            return `<p class="related-empty">Todavía no encontramos recomendaciones para este título.</p>`;
+        }
+
+        return relatedMovies.slice(0, visibleRelatedLimit).map(function(relatedMovie) {
             const relatedPoster = relatedMovie.poster_path
                 ? `https://image.tmdb.org/t/p/w300${relatedMovie.poster_path}`
                 : "";
@@ -1721,22 +2197,46 @@ async function showContentDetails(selectedMovie, age) {
             const relatedScore = relatedMovie.vote_average > 0
                 ? `${relatedMovie.vote_average.toFixed(1)}/10`
                 : "Sin puntuación";
+            const isSaved = movieIsSaved(relatedMovie.id, relatedMovie.media_type);
+            const relatedKey = getContentKey(relatedMovie);
 
             return `
-                <button type="button" class="related-movie" data-related-id="${relatedMovie.id}" data-media-type="${relatedMovie.media_type}">
-                    ${relatedPoster
-                        ? `<img src="${relatedPoster}" alt="Póster de ${escapeHtml(relatedMovie.title)}" loading="lazy">`
-                        : `<span class="related-movie__placeholder">Sin imagen</span>`
-                    }
-                    <span class="related-movie__content">
-                        <span class="related-movie__reason">${escapeHtml(relatedMovie.recommendationReason)}</span>
-                        <strong>${escapeHtml(relatedMovie.title)}</strong>
-                        <small>${getContentTypeLabel(relatedMovie)} · ${relatedYear} · ⭐ ${relatedScore}</small>
-                    </span>
-                </button>
+                <article class="related-movie-card">
+                    <button type="button" class="related-movie" data-related-id="${relatedMovie.id}" data-media-type="${relatedMovie.media_type}">
+                        ${relatedPoster
+                            ? `<img src="${relatedPoster}" alt="Póster de ${escapeHtml(relatedMovie.title)}" loading="lazy">`
+                            : `<span class="related-movie__placeholder">Sin imagen</span>`
+                        }
+                        <span class="related-movie__content">
+                            <span class="related-movie__reason">${escapeHtml(relatedMovie.recommendationReason)}</span>
+                            <strong>${escapeHtml(relatedMovie.title)}</strong>
+                            <small>${getContentTypeLabel(relatedMovie)} · ${relatedYear} · ⭐ ${relatedScore}</small>
+                        </span>
+                    </button>
+                    <button type="button"
+                            class="quick-list-add related-list-add ${isSaved ? "quick-list-add--saved" : ""}"
+                            data-content-key="${escapeHtml(relatedKey)}"
+                            data-save-id="${relatedMovie.id}"
+                            data-media-type="${relatedMovie.media_type}"
+                            aria-label="${isSaved ? `${escapeHtml(relatedMovie.title)} ya está en Mi lista` : `Agregar ${escapeHtml(relatedMovie.title)} a Mi lista`}"
+                            ${isSaved ? "disabled" : ""}>
+                        <span aria-hidden="true">${isSaved ? "✓" : "+"}</span><span>${isSaved ? "En Mi lista" : "Agregar a Mi lista"}</span>
+                    </button>
+                </article>
             `;
-        }).join("")
-        : `<p class="related-empty">Todavía no encontramos recomendaciones para este título.</p>`;
+        }).join("");
+    }
+
+    function renderRelatedLoadMoreButton() {
+        const hasLoadedHiddenMovies = visibleRelatedLimit < relatedMovies.length;
+        if (!hasLoadedHiddenMovies && !hasMoreRelatedPages()) return "";
+
+        const loadedRemaining = Math.max(0, relatedMovies.length - visibleRelatedLimit);
+        const label = loadedRemaining > 0
+            ? `Cargar más recomendaciones (${loadedRemaining})`
+            : "Cargar más recomendaciones";
+        return `<button type="button" class="related-load-more">${label}</button>`;
+    }
     const initiallySaved = movieIsSaved(movieId, mediaType);
     const tmdbMovieUrl = `https://www.themoviedb.org/${mediaType}/${movieId}?language=es-ES`;
     const imdbMovieUrl = detailsData.imdb_id
@@ -1972,7 +2472,9 @@ async function showContentDetails(selectedMovie, age) {
                 <h3 id="recommendations-title">También podría gustarte</h3>
                 <p>Basadas en ${mediaType === "tv" ? "afinidad de TMDB y géneros similares" : "la saga, afinidad de TMDB y géneros similares"}.</p>
             </div>
-            <div class="related-movies-grid">${relatedMoviesMarkup}</div>
+            <div class="related-movies-grid">${renderRelatedMoviesMarkup()}</div>
+            <div class="related-pagination">${renderRelatedLoadMoreButton()}</div>
+            <p class="related-pagination__status" role="status" aria-live="polite"></p>
         </section>
 
         <section class="movie-actions" aria-labelledby="movie-actions-title">
@@ -2040,41 +2542,78 @@ async function showContentDetails(selectedMovie, age) {
                         });
 
                     if (!result.contains(personCard)) return;
+                    const sourceChromeState = captureDetailChrome();
+                    const sourceBackAction = detailBackAction;
 
-                    result.innerHTML = renderPersonFilmography(person, uniqueMovies);
-                    const filmographyView = result.querySelector(".person-filmography");
-                    bindExplorerPagination(filmographyView);
-
-                    filmographyView.querySelector(".filmography-back").addEventListener("click", function() {
+                    function restoreSourceDetail() {
                         result.innerHTML = summaryMarkup;
+                        restoreDetailChrome(sourceChromeState);
+                        detailBackAction = sourceBackAction;
                         bindExploreButton();
                         bindPersonCards();
                         bindCountrySearch();
                         bindRelatedMovies();
                         bindMovieActions();
                         result.scrollIntoView({ behavior: "smooth", block: "start" });
-                    });
+                    }
 
-                    filmographyView.addEventListener("click", async function(event) {
-                        const movieButton = event.target.closest(".filmography-movie");
-                        if (!movieButton) return;
+                    function showFilmographyView() {
+                        result.innerHTML = renderPersonFilmography(person, uniqueMovies);
+                        resultToolbar.hidden = true;
+                        resetHeaderIndicators();
+                        detailBackAction = restoreSourceDetail;
 
-                        const selectedId = Number(movieButton.dataset.filmographyMovieId);
-                        const selectedType = movieButton.dataset.mediaType || "movie";
-                        const selectedFilm = uniqueMovies.find(function(movie) {
-                            return movie.id === selectedId && movie.media_type === selectedType;
+                        const filmographyView = result.querySelector(".person-filmography");
+                        const listStatus = filmographyView.querySelector(".filmography-list-status");
+                        bindExplorerPagination(filmographyView);
+
+                        filmographyView.querySelector(".filmography-back").addEventListener("click", restoreSourceDetail);
+
+                        filmographyView.addEventListener("click", async function(event) {
+                            const saveButton = event.target.closest(".filmography-list-add");
+                            if (saveButton) {
+                                const savedId = Number(saveButton.dataset.saveId);
+                                const savedType = saveButton.dataset.mediaType || "movie";
+                                const savedFilm = uniqueMovies.find(function(movie) {
+                                    return movie.id === savedId && movie.media_type === savedType;
+                                });
+                                if (!savedFilm) return;
+
+                                try {
+                                    const wasAdded = addMovieToSavedList(savedFilm);
+                                    markQuickSaveButtons(filmographyView, savedFilm);
+                                    listStatus.textContent = wasAdded
+                                        ? `${savedFilm.title} se agregó a pendientes.`
+                                        : `${savedFilm.title} ya estaba en Mi lista.`;
+                                } catch (error) {
+                                    listStatus.textContent = "El navegador no permitió guardar este título.";
+                                }
+                                return;
+                            }
+
+                            const movieButton = event.target.closest(".filmography-movie");
+                            if (!movieButton) return;
+
+                            const selectedId = Number(movieButton.dataset.filmographyMovieId);
+                            const selectedType = movieButton.dataset.mediaType || "movie";
+                            const selectedFilm = uniqueMovies.find(function(movie) {
+                                return movie.id === selectedId && movie.media_type === selectedType;
+                            });
+                            if (!selectedFilm) return;
+
+                            resultToolbar.hidden = false;
+                            result.innerHTML = `<p class="loading-message">Cargando título…</p>`;
+                            try {
+                                await showContentDetails(selectedFilm, age, { onBack: showFilmographyView });
+                            } catch (error) {
+                                result.innerHTML = `<p class="detail-error">No pudimos cargar este título.</p>`;
+                            }
                         });
-                        if (!selectedFilm) return;
 
-                        result.innerHTML = `<p class="loading-message">Cargando título…</p>`;
-                        try {
-                            await showContentDetails(selectedFilm, age);
-                        } catch (error) {
-                            result.innerHTML = `<p class="detail-error">No pudimos cargar este título.</p>`;
-                        }
-                    });
+                        result.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }
 
-                    result.scrollIntoView({ behavior: "smooth", block: "start" });
+                    showFilmographyView();
                 } catch (error) {
                     personCard.disabled = false;
                     if (hint) hint.textContent = "No se pudo cargar · Reintentar";
@@ -2162,7 +2701,112 @@ async function showContentDetails(selectedMovie, age) {
         const recommendationsSection = result.querySelector(".movie-recommendations");
         if (!recommendationsSection) return;
 
+        function renderRelatedSection(statusMessage = "") {
+            const grid = recommendationsSection.querySelector(".related-movies-grid");
+            const pagination = recommendationsSection.querySelector(".related-pagination");
+            const status = recommendationsSection.querySelector(".related-pagination__status");
+            grid.innerHTML = renderRelatedMoviesMarkup();
+            pagination.innerHTML = renderRelatedLoadMoreButton();
+            status.textContent = statusMessage;
+            summaryMarkup = result.innerHTML;
+        }
+
         recommendationsSection.addEventListener("click", async function(event) {
+            const saveButton = event.target.closest(".related-list-add");
+            if (saveButton) {
+                const savedId = Number(saveButton.dataset.saveId);
+                const savedType = saveButton.dataset.mediaType || mediaType;
+                const savedMovie = relatedMovies.find(function(item) {
+                    return item.id === savedId && item.media_type === savedType;
+                });
+                if (!savedMovie) return;
+
+                const status = recommendationsSection.querySelector(".related-pagination__status");
+                try {
+                    const wasAdded = addMovieToSavedList(savedMovie);
+                    markQuickSaveButtons(recommendationsSection, savedMovie);
+                    status.textContent = wasAdded
+                        ? `${savedMovie.title} se agregó a pendientes.`
+                        : `${savedMovie.title} ya estaba en Mi lista.`;
+                    summaryMarkup = result.innerHTML;
+                } catch (error) {
+                    status.textContent = "El navegador no permitió guardar este título.";
+                }
+                return;
+            }
+
+            const loadMoreButton = event.target.closest(".related-load-more");
+            if (loadMoreButton && !relatedPageIsLoading) {
+                if (visibleRelatedLimit < relatedMovies.length) {
+                    visibleRelatedLimit = Math.min(
+                        relatedMovies.length,
+                        visibleRelatedLimit + RELATED_RESULTS_PAGE_SIZE
+                    );
+                    renderRelatedSection();
+                    return;
+                }
+
+                relatedPageIsLoading = true;
+                loadMoreButton.disabled = true;
+                loadMoreButton.textContent = "Cargando recomendaciones…";
+                const status = recommendationsSection.querySelector(".related-pagination__status");
+                status.textContent = "Consultando más títulos en TMDB.";
+
+                const pageRequests = [];
+                if (recommendationsPage < recommendationsTotalPages) {
+                    const nextPage = recommendationsPage + 1;
+                    pageRequests.push(
+                        fetch(`${recommendationsUrl}?page=${nextPage}`).then(async function(response) {
+                            if (!response.ok) throw new Error("No se pudieron cargar recomendaciones.");
+                            return { source: "recommendations", page: nextPage, data: await response.json() };
+                        })
+                    );
+                }
+                if (similarPage < similarTotalPages) {
+                    const nextPage = similarPage + 1;
+                    pageRequests.push(
+                        fetch(`${similarUrl}?page=${nextPage}`).then(async function(response) {
+                            if (!response.ok) throw new Error("No se pudieron cargar títulos similares.");
+                            return { source: "similar", page: nextPage, data: await response.json() };
+                        })
+                    );
+                }
+
+                const previousTotal = relatedMovies.length;
+                const pageResponses = await Promise.allSettled(pageRequests);
+                let successfulPages = 0;
+                pageResponses.forEach(function(pageResponse) {
+                    if (pageResponse.status !== "fulfilled") return;
+                    successfulPages += 1;
+                    const pageData = pageResponse.value;
+                    if (pageData.source === "recommendations") {
+                        recommendationsPage = pageData.page;
+                        recommendationsTotalPages = Number(pageData.data.total_pages) || recommendationsPage;
+                        addRelatedMovies(pageData.data.results, "Recomendada por TMDB");
+                    } else {
+                        similarPage = pageData.page;
+                        similarTotalPages = Number(pageData.data.total_pages) || similarPage;
+                        addRelatedMovies(pageData.data.results, "Géneros similares");
+                    }
+                });
+
+                relatedMovies = Array.from(relatedMovieMap.values());
+                visibleRelatedLimit = Math.min(
+                    relatedMovies.length,
+                    visibleRelatedLimit + RELATED_RESULTS_PAGE_SIZE
+                );
+                relatedPageIsLoading = false;
+
+                const addedMovies = relatedMovies.length - previousTotal;
+                const message = successfulPages === 0
+                    ? "No pudimos cargar más recomendaciones. Inténtalo nuevamente."
+                    : addedMovies > 0
+                        ? `Se agregaron ${addedMovies} recomendaciones nuevas.`
+                        : "No encontramos recomendaciones nuevas en esta página.";
+                renderRelatedSection(message);
+                return;
+            }
+
             const relatedButton = event.target.closest(".related-movie");
             if (!relatedButton) return;
 
@@ -2441,6 +3085,7 @@ recommendAgeButton.addEventListener("click", async function() {
     }
 
     showThemeToggleOnHome(false);
+    detailBackAction = null;
 
     openedFromSavedList = false;
     resultToolbar.hidden = true;
@@ -2471,6 +3116,7 @@ form.addEventListener("submit", async function(event) {
     catalogRequestVersion += 1;
     setActiveNavigation("nav-home");
     showThemeToggleOnHome(false);
+    detailBackAction = null;
     openedFromSavedList = false;
 
     resultToolbar.hidden = true;
@@ -2702,6 +3348,15 @@ form.addEventListener("submit", async function(event) {
 
 // Restaura exactamente la cuadrícula previa y limpia únicamente la ficha abierta.
 backButton.addEventListener("click", function() {
+
+    // Si la ficha se abrió desde una filmografía, vuelve a esa misma persona
+    // conservando sus películas cargadas, en lugar de regresar al buscador.
+    if (typeof detailBackAction === "function") {
+        const returnToPreviousContext = detailBackAction;
+        detailBackAction = null;
+        returnToPreviousContext();
+        return;
+    }
 
     const returnToSavedList = openedFromSavedList;
     openedFromSavedList = false;
