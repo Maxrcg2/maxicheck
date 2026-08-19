@@ -24,7 +24,6 @@ const savedListContent = document.getElementById("saved-list-content");
 const themeToggle = document.getElementById("theme-toggle");
 const themeToggleIcon = themeToggle.querySelector("[data-theme-icon]");
 const themeToggleLabel = themeToggle.querySelector("[data-theme-label]");
-const navHomeButton = document.getElementById("nav-home");
 const navTopButton = document.getElementById("nav-top");
 const navPopularButton = document.getElementById("nav-popular");
 const navAdvancedButton = document.getElementById("nav-advanced");
@@ -35,12 +34,33 @@ const metacriticNavLink = document.getElementById("nav-metacritic");
 const advancedSearchPanel = document.getElementById("advanced-search-panel");
 const advancedSearchClose = document.getElementById("advanced-search-close");
 const advancedSearchForm = document.getElementById("advanced-search-form");
+const accountButton = document.getElementById("account-button");
+const accountAvatar = accountButton.querySelector("[data-account-avatar]");
+const accountLabel = accountButton.querySelector("[data-account-label]");
+const authPanel = document.getElementById("auth-panel");
+const authClose = document.getElementById("auth-close");
+const authLoading = document.getElementById("auth-loading");
+const authSignedOut = document.getElementById("auth-signed-out");
+const authSignedIn = document.getElementById("auth-signed-in");
+const authGoogleButton = document.getElementById("auth-google");
+const authForm = document.getElementById("auth-form");
+const authRegisterButton = document.getElementById("auth-register");
+const authContinueButton = document.getElementById("auth-continue");
+const authSignOutButton = document.getElementById("auth-sign-out");
+const authProfileAvatar = document.getElementById("auth-profile-avatar");
+const authProfileName = document.getElementById("auth-profile-name");
+const authProfileEmail = document.getElementById("auth-profile-email");
+const authStatus = document.getElementById("auth-status");
+const accountToast = document.getElementById("account-toast");
+const authService = window.MaxiCheckAuth;
+const listStore = window.MaxiCheckListStore;
+if (!authService) throw new Error("El servicio de cuenta no está disponible.");
+if (!listStore) throw new Error("El servicio de Mi lista no está disponible.");
 let currentResultsCount = 0;
 let openedFromSavedList = false;
 let currentNavigationId = "nav-home";
 let catalogRequestVersion = 0;
 let detailBackAction = null;
-const SAVED_MOVIES_KEY = "maxicheck-saved-movies";
 const THEME_STORAGE_KEY = "maxicheck-theme";
 const RELATED_RESULTS_PAGE_SIZE = 6;
 const SAVED_RECOMMENDATIONS_PAGE_SIZE = 12;
@@ -58,6 +78,8 @@ let savedRecommendationExcludedKeys = new Set();
 let savedRecommendationsVisibleLimit = SAVED_RECOMMENDATIONS_PAGE_SIZE;
 let savedRecommendationsLoading = false;
 let savedRecommendationsInitialRequest = null;
+let previousAuthenticatedUserId = null;
+let accountToastTimer = null;
 
 // Cambia el tema sin recargar y mantiene sincronizados icono, texto y accesibilidad.
 function applyTheme(themeId, persist = true) {
@@ -105,6 +127,198 @@ function showThemeToggleOnHome(isHome) {
 
 initializeThemeToggle();
 
+// Traduce los errores más habituales de Firebase a mensajes útiles para el usuario.
+function getAuthenticationErrorMessage(error) {
+    const messages = {
+        "auth/email-already-in-use": "Ya existe una cuenta con este correo.",
+        "auth/invalid-credential": "El correo o la contraseña no son correctos.",
+        "auth/invalid-email": "Escribe una dirección de correo válida.",
+        "auth/missing-password": "Escribe tu contraseña.",
+        "auth/weak-password": "La contraseña debe tener al menos 6 caracteres.",
+        "auth/popup-closed-by-user": "La ventana de Google se cerró antes de completar el acceso.",
+        "auth/popup-blocked": "El navegador bloqueó la ventana de Google. Permite ventanas emergentes e inténtalo otra vez.",
+        "auth/operation-not-allowed": "Este método de acceso todavía no está habilitado en Firebase.",
+        "auth/unauthorized-domain": "Este dominio todavía no está autorizado en Firebase Authentication.",
+        "firebase/not-ready": "Firebase todavía está conectándose. Inténtalo nuevamente en unos segundos."
+    };
+    return messages[error?.code] || "No pudimos completar la operación. Comprueba tu conexión e inténtalo otra vez.";
+}
+
+function getUserDisplayName(user) {
+    return user?.displayName || user?.email?.split("@")[0] || "Cuenta MaxiCheck";
+}
+
+function showAccountToast(message, state = "success") {
+    window.clearTimeout(accountToastTimer);
+    accountToast.textContent = message;
+    accountToast.className = `account-toast account-toast--${state}`;
+    accountToast.hidden = false;
+    accountToastTimer = window.setTimeout(function() {
+        accountToast.hidden = true;
+    }, 4200);
+}
+
+function setAuthControlsBusy(isBusy) {
+    [authGoogleButton, authRegisterButton, authContinueButton, authSignOutButton].forEach(function(button) {
+        button.disabled = isBusy;
+    });
+    Array.from(authForm.elements).forEach(function(control) {
+        control.disabled = isBusy;
+    });
+}
+
+function updateAccountInterface({ user, ready, error }) {
+    authLoading.hidden = ready;
+    authSignedOut.hidden = !ready || Boolean(user);
+    authSignedIn.hidden = !ready || !user;
+
+    if (!ready) {
+        accountAvatar.textContent = "…";
+        accountLabel.textContent = "Conectando";
+        return;
+    }
+
+    if (!user) {
+        accountAvatar.textContent = "♙";
+        accountLabel.textContent = "Entrar";
+        accountButton.classList.remove("account-button--signed-in");
+        accountButton.setAttribute("aria-label", "Iniciar sesión en MaxiCheck");
+        accountButton.removeAttribute("title");
+        if (error) authStatus.textContent = "Firebase no está disponible en este momento.";
+        return;
+    }
+
+    const displayName = getUserDisplayName(user);
+    const initial = displayName.trim().charAt(0).toUpperCase() || "M";
+    accountAvatar.textContent = initial;
+    accountLabel.textContent = "Logueado";
+    accountButton.classList.add("account-button--signed-in");
+    accountButton.setAttribute("aria-label", `Logueado como ${displayName}. Abrir cuenta.`);
+    accountButton.title = `Logueado como ${displayName}`;
+    authProfileAvatar.textContent = initial;
+    authProfileName.textContent = displayName;
+    authProfileEmail.textContent = user.email || "Sesión iniciada";
+    authStatus.textContent = "";
+}
+
+function openAuthPanel(message = "") {
+    authPanel.hidden = false;
+    accountButton.setAttribute("aria-expanded", "true");
+    document.body.classList.add("auth-open");
+    authStatus.textContent = message;
+    authClose.focus();
+}
+
+function closeAuthPanel() {
+    authPanel.hidden = true;
+    accountButton.setAttribute("aria-expanded", "false");
+    document.body.classList.remove("auth-open");
+    authStatus.textContent = "";
+    accountButton.focus();
+}
+
+function showListWriteError(error, statusElement) {
+    if (error?.code === "auth/required") {
+        statusElement.textContent = "Inicia sesión para guardar este título en Mi lista.";
+        openAuthPanel("Inicia sesión para guardar y sincronizar este título.");
+        return;
+    }
+
+    statusElement.textContent = error?.code === "permission-denied"
+        ? "Firebase rechazó el cambio. Revisa las reglas de seguridad de Firestore."
+        : "No pudimos sincronizar este título. Comprueba tu conexión e inténtalo nuevamente.";
+}
+
+async function runAuthenticationAction(action, progressMessage) {
+    authStatus.textContent = progressMessage;
+    setAuthControlsBusy(true);
+    try {
+        await action();
+        authStatus.textContent = "Acceso completado. Tu lista comenzará a sincronizarse.";
+        return true;
+    } catch (error) {
+        authStatus.textContent = getAuthenticationErrorMessage(error);
+        return false;
+    } finally {
+        setAuthControlsBusy(false);
+    }
+}
+
+accountButton.addEventListener("click", function() {
+    openAuthPanel();
+});
+
+authClose.addEventListener("click", closeAuthPanel);
+authPanel.addEventListener("click", function(event) {
+    if (event.target === authPanel) closeAuthPanel();
+});
+
+authGoogleButton.addEventListener("click", function() {
+    runAuthenticationAction(
+        function() { return authService.signInWithGoogle(); },
+        "Abriendo el acceso seguro de Google…"
+    );
+});
+
+authForm.addEventListener("submit", function(event) {
+    event.preventDefault();
+    const formData = new FormData(authForm);
+    runAuthenticationAction(
+        function() {
+            return authService.signInWithEmail(
+                String(formData.get("email") || "").trim(),
+                String(formData.get("password") || "")
+            );
+        },
+        "Comprobando tu cuenta…"
+    );
+});
+
+authRegisterButton.addEventListener("click", function() {
+    if (!authForm.reportValidity()) return;
+    const formData = new FormData(authForm);
+    runAuthenticationAction(
+        function() {
+            return authService.registerWithEmail(
+                String(formData.get("email") || "").trim(),
+                String(formData.get("password") || "")
+            );
+        },
+        "Creando tu cuenta…"
+    );
+});
+
+authContinueButton.addEventListener("click", closeAuthPanel);
+
+authSignOutButton.addEventListener("click", async function() {
+    const signedOut = await runAuthenticationAction(
+        function() { return authService.signOut(); },
+        "Cerrando la sesión…"
+    );
+    if (signedOut) closeAuthPanel();
+});
+
+authService.subscribe(function(state) {
+    updateAccountInterface(state);
+    updateSavedListButton();
+    if (!savedListPanel.hidden) renderSavedList();
+
+    if (!state.ready) return;
+
+    if (state.user && state.user.uid !== previousAuthenticatedUserId) {
+        showAccountToast("✓ Sesión iniciada. Mi lista está sincronizada.");
+        if (!authPanel.hidden) {
+            window.setTimeout(function() {
+                if (authService.getUser()?.uid === state.user.uid && !authPanel.hidden) closeAuthPanel();
+            }, 900);
+        }
+    } else if (!state.user && previousAuthenticatedUserId) {
+        showAccountToast("Sesión cerrada. Inicia sesión para volver a ver tu lista.", "neutral");
+    }
+
+    previousAuthenticatedUserId = state.user?.uid || null;
+});
+
 // TMDB usa nombres de campos distintos para películas y series; MaxiCheck los unifica aquí.
 function normalizeContent(content, fallbackType = "movie") {
     const mediaType = content?.media_type === "tv"
@@ -144,20 +358,13 @@ function isSameContent(first, second) {
 }
 
 function getSavedMovies() {
-    try {
-        const savedMovies = JSON.parse(localStorage.getItem(SAVED_MOVIES_KEY) || "[]");
-        return Array.isArray(savedMovies)
-            ? savedMovies.map(function(movie) {
-                const normalized = normalizeContent(movie, movie.media_type || "movie");
-                return {
-                    ...normalized,
-                    listStatus: movie.listStatus === "watched" ? "watched" : "pending"
-                };
-            })
-            : [];
-    } catch (error) {
-        return [];
-    }
+    return listStore.getAll().map(function(movie) {
+        const normalized = normalizeContent(movie, movie.media_type || "movie");
+        return {
+            ...normalized,
+            listStatus: movie.listStatus === "watched" ? "watched" : "pending"
+        };
+    });
 }
 
 function movieIsSaved(movieId, mediaType = "movie") {
@@ -165,7 +372,7 @@ function movieIsSaved(movieId, mediaType = "movie") {
     return getSavedMovies().some(function(movie) { return getContentKey(movie) === key; });
 }
 
-function toggleSavedMovie(movie) {
+async function toggleSavedMovie(movie) {
     const savedMovies = getSavedMovies();
     const normalizedMovie = normalizeContent(movie);
     const existingIndex = savedMovies.findIndex(function(item) { return isSameContent(item, normalizedMovie); });
@@ -176,12 +383,12 @@ function toggleSavedMovie(movie) {
         savedMovies.unshift({ ...normalizedMovie, listStatus: "pending" });
     }
 
-    localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(savedMovies));
+    await listStore.replaceAll(savedMovies);
     return existingIndex < 0;
 }
 
 // Añade un título a pendientes sin eliminarlo si ya estaba guardado.
-function addMovieToSavedList(movie) {
+async function addMovieToSavedList(movie) {
     const savedMovies = getSavedMovies();
     const normalizedMovie = normalizeContent(movie);
     if (savedMovies.some(function(item) { return isSameContent(item, normalizedMovie); })) return false;
@@ -197,8 +404,7 @@ function addMovieToSavedList(movie) {
         maxicheck_is_documentary: normalizedMovie.maxicheck_is_documentary,
         listStatus: "pending"
     });
-    localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(savedMovies));
-    updateSavedListButton();
+    await listStore.replaceAll(savedMovies);
     return true;
 }
 
@@ -216,10 +422,13 @@ function markQuickSaveButtons(container, movie) {
 
 function updateSavedListButton() {
     const total = getSavedMovies().length;
+    const user = authService.getUser();
     savedListCount.textContent = String(total);
     savedListButton.setAttribute(
         "aria-label",
-        `Abrir Mi lista, ${total} ${total === 1 ? "título" : "títulos"}`
+        user
+            ? `Abrir Mi lista, ${total} ${total === 1 ? "título" : "títulos"}`
+            : "Abrir Mi lista; inicia sesión para sincronizar tus títulos"
     );
 }
 
@@ -461,6 +670,30 @@ async function loadMoreSavedRecommendationPages() {
 
 async function renderSavedList() {
     const renderVersion = ++savedListRenderVersion;
+
+    if (!authService.isReady()) {
+        savedListContent.innerHTML = `
+            <div class="saved-list-auth-gate">
+                <span class="auth-spinner" aria-hidden="true"></span>
+                <h3>Conectando Mi lista</h3>
+                <p>Estamos preparando la sincronización segura con Firebase.</p>
+            </div>
+        `;
+        return;
+    }
+
+    if (!authService.getUser()) {
+        savedListContent.innerHTML = `
+            <div class="saved-list-auth-gate">
+                <span class="saved-list-auth-gate__icon" aria-hidden="true">☁</span>
+                <h3>Tu lista, siempre contigo</h3>
+                <p>Inicia sesión para guardar películas y series y verlas en todos tus dispositivos.</p>
+                <button type="button" class="saved-list-auth-button">Iniciar sesión</button>
+            </div>
+        `;
+        return;
+    }
+
     const savedMovies = getSavedMovies();
     const pendingMovies = savedMovies.filter(function(movie) { return movie.listStatus === "pending"; });
     const watchedMovies = savedMovies.filter(function(movie) { return movie.listStatus === "watched"; });
@@ -514,12 +747,19 @@ savedListPanel.addEventListener("click", function(event) {
     if (event.target === savedListPanel) closeSavedList();
 });
 
-savedListContent.addEventListener("click", async function(event) {
+async function handleSavedListInteraction(event) {
+    const authenticationButton = event.target.closest(".saved-list-auth-button");
     const removeButton = event.target.closest(".saved-movie-remove");
     const statusButton = event.target.closest(".saved-movie-status");
     const addRecommendationButton = event.target.closest(".saved-recommendation-add");
     const loadRecommendationsButton = event.target.closest(".saved-recommendations-load-more");
     const openButton = event.target.closest(".saved-movie-open");
+
+    if (authenticationButton) {
+        closeSavedList();
+        openAuthPanel("Inicia sesión para comenzar una lista sincronizada.");
+        return;
+    }
 
     if (loadRecommendationsButton && !savedRecommendationsLoading) {
         // Primero revela los títulos ya descargados; solo consulta TMDB cuando
@@ -569,9 +809,7 @@ savedListContent.addEventListener("click", async function(event) {
         const mediaType = removeButton.dataset.mediaType || "movie";
         const contentKey = getContentKey(movieId, mediaType);
         const updatedMovies = getSavedMovies().filter(function(movie) { return getContentKey(movie) !== contentKey; });
-        localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(updatedMovies));
-        updateSavedListButton();
-        renderSavedList();
+        await listStore.replaceAll(updatedMovies);
         return;
     }
 
@@ -583,8 +821,7 @@ savedListContent.addEventListener("click", async function(event) {
         const updatedMovies = getSavedMovies().map(function(movie) {
             return getContentKey(movie) === contentKey ? { ...movie, listStatus: nextStatus } : movie;
         });
-        localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(updatedMovies));
-        renderSavedList();
+        await listStore.replaceAll(updatedMovies);
         return;
     }
 
@@ -610,10 +847,8 @@ savedListContent.addEventListener("click", async function(event) {
                 maxicheck_is_documentary: recommendation.maxicheck_is_documentary,
                 listStatus: "pending"
             });
-            localStorage.setItem(SAVED_MOVIES_KEY, JSON.stringify(savedMovies));
+            await listStore.replaceAll(savedMovies);
         }
-        updateSavedListButton();
-        renderSavedList();
         return;
     }
 
@@ -663,10 +898,31 @@ savedListContent.addEventListener("click", async function(event) {
             result.innerHTML = `<p class="detail-error">No pudimos abrir este título guardado.</p>`;
         }
     }
+}
+
+savedListContent.addEventListener("click", function(event) {
+    handleSavedListInteraction(event).catch(function(error) {
+        const existingMessage = savedListContent.querySelector(".saved-list-operation-error");
+        const message = existingMessage || document.createElement("p");
+        message.className = "saved-list-operation-error";
+        message.setAttribute("role", "status");
+        message.textContent = error?.code === "permission-denied"
+            ? "Firebase rechazó el cambio. Debemos publicar las reglas de seguridad."
+            : "No pudimos sincronizar este cambio. Comprueba tu conexión e inténtalo nuevamente.";
+        if (!existingMessage) savedListContent.prepend(message);
+    });
 });
 
 document.addEventListener("keydown", function(event) {
     if (event.key === "Escape" && !savedListPanel.hidden) closeSavedList();
+    else if (event.key === "Escape" && !authPanel.hidden) closeAuthPanel();
+});
+
+// Mantiene la interfaz sincronizada con cualquier implementación del servicio.
+// Firestore utilizará esta misma suscripción para reflejar cambios de otros equipos.
+listStore.subscribe(function() {
+    updateSavedListButton();
+    if (!savedListPanel.hidden) renderSavedList();
 });
 
 updateSavedListButton();
@@ -824,7 +1080,6 @@ function resetApplication() {
 }
 
 homeButton.addEventListener("click", resetApplication);
-navHomeButton.addEventListener("click", resetApplication);
 
 function prepareCatalogView() {
     detailBackAction = null;
@@ -2580,13 +2835,13 @@ async function showContentDetails(selectedMovie, age, options = {}) {
                                 if (!savedFilm) return;
 
                                 try {
-                                    const wasAdded = addMovieToSavedList(savedFilm);
+                                    const wasAdded = await addMovieToSavedList(savedFilm);
                                     markQuickSaveButtons(filmographyView, savedFilm);
                                     listStatus.textContent = wasAdded
                                         ? `${savedFilm.title} se agregó a pendientes.`
                                         : `${savedFilm.title} ya estaba en Mi lista.`;
                                 } catch (error) {
-                                    listStatus.textContent = "El navegador no permitió guardar este título.";
+                                    showListWriteError(error, listStatus);
                                 }
                                 return;
                             }
@@ -2723,14 +2978,14 @@ async function showContentDetails(selectedMovie, age, options = {}) {
 
                 const status = recommendationsSection.querySelector(".related-pagination__status");
                 try {
-                    const wasAdded = addMovieToSavedList(savedMovie);
+                    const wasAdded = await addMovieToSavedList(savedMovie);
                     markQuickSaveButtons(recommendationsSection, savedMovie);
                     status.textContent = wasAdded
                         ? `${savedMovie.title} se agregó a pendientes.`
                         : `${savedMovie.title} ya estaba en Mi lista.`;
                     summaryMarkup = result.innerHTML;
                 } catch (error) {
-                    status.textContent = "El navegador no permitió guardar este título.";
+                    showListWriteError(error, status);
                 }
                 return;
             }
@@ -2868,9 +3123,9 @@ async function showContentDetails(selectedMovie, age, options = {}) {
             }
         });
 
-        saveButton.addEventListener("click", function() {
+        saveButton.addEventListener("click", async function() {
             try {
-                const wasSaved = toggleSavedMovie({
+                const wasSaved = await toggleSavedMovie({
                     id: movieId,
                     title,
                     poster_path: posterPath,
@@ -2880,16 +3135,14 @@ async function showContentDetails(selectedMovie, age, options = {}) {
                     media_type: mediaType,
                     maxicheck_is_documentary: selectedMovie.maxicheck_is_documentary
                 });
-                updateSavedListButton();
-                if (!savedListPanel.hidden) renderSavedList();
                 saveButton.setAttribute("aria-pressed", String(wasSaved));
                 saveButton.innerHTML = `<span aria-hidden="true">${wasSaved ? "♥" : "♡"}</span><span>${wasSaved ? "Guardada en Mi lista" : "Guardar en Mi lista"}</span>`;
                 posterStatus.textContent = wasSaved
-                    ? `${contentLabel} guardada en este navegador.`
+                    ? `${contentLabel} guardada y sincronizada en Mi lista.`
                     : `${contentLabel} eliminada de tus guardadas.`;
                 summaryMarkup = result.innerHTML;
             } catch (error) {
-                posterStatus.textContent = "El navegador no permitió guardar este título.";
+                showListWriteError(error, posterStatus);
             }
         });
 

@@ -36,7 +36,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet">
     <!-- La versión fuerza al navegador a descargar los estilos después de una actualización. -->
-    <link rel="stylesheet" href="css/styles.css?v=20260817-23">
+    <link rel="stylesheet" href="css/styles.css?v=20260819-7">
 </head>
 <body>
     <!-- Banner global fijo: marca, recomendación y clasificación permanecen visibles. -->
@@ -44,14 +44,22 @@
         <button id="home-button" class="brand__home" type="button" aria-label="Volver al inicio de MaxiCheck">
             <img class="brand__logo" src="images/maxicheck-logo.png" alt="MaxiCheck — Check before you watch.">
         </button>
-        <span id="header-results-count" class="header-results-count" role="status" aria-live="polite" hidden></span>
-        <span id="header-recommendation" class="header-recommendation" role="status" hidden></span>
-        <div class="brand__actions">
+        <!-- El centro agrupa la respuesta por edad y la clasificación oficial. -->
+        <div class="brand__status">
+            <span id="header-results-count" class="header-results-count" role="status" aria-live="polite" hidden></span>
+            <span id="header-recommendation" class="header-recommendation" role="status" hidden></span>
             <span id="header-certification" class="header-certification" hidden></span>
-            <!-- El selector visual solo aparece en Inicio; las demás vistas reservan este espacio para la clasificación. -->
+        </div>
+        <div class="brand__actions">
+            <!-- El selector visual solo aparece en Inicio; la cuenta permanece siempre disponible. -->
             <button id="theme-toggle" class="brand__theme-toggle theme-toggle" type="button">
                 <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">☾</span>
                 <span data-theme-label>Oscuro</span>
+            </button>
+            <!-- La cuenta permanece accesible durante toda la navegación. -->
+            <button id="account-button" class="brand__account account-button" type="button" aria-haspopup="dialog" aria-expanded="false">
+                <span class="account-button__avatar" data-account-avatar aria-hidden="true">♙</span>
+                <span data-account-label>Entrar</span>
             </button>
         </div>
     </header>
@@ -61,7 +69,6 @@
         <div class="catalog-nav__track">
             <!-- Funciones propias de MaxiCheck alineadas al lado izquierdo. -->
             <div class="catalog-nav__group catalog-nav__group--primary">
-                <button id="nav-home" class="catalog-nav__button catalog-nav__button--active" type="button" aria-current="page"><span aria-hidden="true">⌂</span><span>Inicio</span></button>
                 <button id="nav-top" class="catalog-nav__button" type="button"><span aria-hidden="true">★</span><span>Top MC</span></button>
                 <button id="nav-popular" class="catalog-nav__button" type="button"><span aria-hidden="true">🔥</span><span>Populares</span></button>
                 <button id="nav-advanced" class="catalog-nav__button" type="button" aria-haspopup="dialog"><span aria-hidden="true">⌕</span><span>Búsqueda avanzada</span></button>
@@ -139,7 +146,7 @@
         </section>
     </div>
 
-    <!-- Panel local de películas, series y documentales guardados; no necesita registro. -->
+    <!-- Panel sincronizado de películas, series y documentales del usuario. -->
     <div id="saved-list-panel" class="saved-list-panel" hidden>
         <section class="saved-list-dialog" role="dialog" aria-modal="true" aria-labelledby="saved-list-title">
             <header>
@@ -152,6 +159,62 @@
             <div id="saved-list-content" class="saved-list-content"></div>
         </section>
     </div>
+
+    <!-- Acceso a la cuenta que protege y sincroniza Mi lista mediante Firebase. -->
+    <div id="auth-panel" class="auth-panel" hidden>
+        <section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+            <header>
+                <div>
+                    <span>Cuenta MaxiCheck</span>
+                    <h2 id="auth-title">Tu lista en todos tus dispositivos</h2>
+                </div>
+                <button id="auth-close" type="button" aria-label="Cerrar acceso a la cuenta">×</button>
+            </header>
+
+            <div id="auth-loading" class="auth-state auth-state--loading">
+                <span class="auth-spinner" aria-hidden="true"></span>
+                <p>Conectando con Firebase…</p>
+            </div>
+
+            <div id="auth-signed-out" class="auth-state" hidden>
+                <p class="auth-intro">Inicia sesión para conservar y sincronizar tus títulos pendientes y vistos.</p>
+                <button id="auth-google" class="auth-google" type="button">
+                    <span aria-hidden="true">G</span>
+                    <span>Continuar con Google</span>
+                </button>
+                <div class="auth-separator"><span>o utiliza tu correo</span></div>
+                <form id="auth-form" class="auth-form">
+                    <label for="auth-email">Correo electrónico</label>
+                    <input id="auth-email" name="email" type="email" autocomplete="email" required>
+                    <label for="auth-password">Contraseña</label>
+                    <input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="6" required>
+                    <div class="auth-form__actions">
+                        <button type="submit">Iniciar sesión</button>
+                        <button id="auth-register" type="button">Crear cuenta</button>
+                    </div>
+                </form>
+                <p class="auth-privacy">Cada cuenta solo puede acceder a su propia lista.</p>
+            </div>
+
+            <div id="auth-signed-in" class="auth-state auth-state--profile" hidden>
+                <span id="auth-profile-avatar" class="auth-profile-avatar" aria-hidden="true">M</span>
+                <div>
+                    <h3 id="auth-profile-name">Cuenta MaxiCheck</h3>
+                    <p id="auth-profile-email"></p>
+                </div>
+                <p class="auth-sync-message"><span aria-hidden="true">✓</span> Mi lista está sincronizada con Firebase.</p>
+                <div class="auth-profile-actions">
+                    <button id="auth-continue" class="auth-continue" type="button">Continuar en MaxiCheck</button>
+                    <button id="auth-sign-out" class="auth-sign-out" type="button">Salir de mi cuenta</button>
+                </div>
+            </div>
+
+            <p id="auth-status" class="auth-status" role="status" aria-live="polite"></p>
+        </section>
+    </div>
+
+    <!-- Confirmación breve que diferencia cerrar la ventana de cerrar la sesión. -->
+    <p id="account-toast" class="account-toast" role="status" aria-live="polite" hidden></p>
 
     <!-- Contenedor principal de la aplicación. -->
     <main>
@@ -225,22 +288,31 @@
         </div>
         <section id="result" aria-live="polite"></section>
     </main>
-<!-- Créditos y atribución oficial de TMDB. -->
-<footer class="site-footer">
-    <p>
-        This product uses the
-        <a
-            href="https://www.themoviedb.org/"
-            target="_blank"
-            rel="noopener noreferrer"
-        >
-            TMDB API
-        </a>
-        but is not endorsed or certified by TMDB.
-    </p>
-</footer>
-    <!-- Se carga al final para que los elementos anteriores ya existan. -->
-    <!-- La versión evita reutilizar una copia antigua de la lógica desde la caché. -->
-    <script src="js/app.js?v=20260817-23"></script>
+    <!-- Franja de créditos y atribución oficial de TMDB. -->
+    <footer class="site-footer" aria-label="Créditos y fuentes de MaxiCheck">
+        <div class="site-footer__track">
+            <section class="site-footer__brand" aria-label="MaxiCheck">
+                <img class="site-footer__brand-logo" src="images/maxicheck-logo.png" alt="MaxiCheck — Check before you watch.">
+            </section>
+
+            <span class="site-footer__divider" aria-hidden="true"></span>
+
+            <section class="site-footer__credits">
+                <a class="site-footer__tmdb" href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer" aria-label="Visitar The Movie Database">
+                    <img src="images/tmdb-logo.svg" alt="TMDB">
+                </a>
+                <div>
+                    <strong>Datos e imágenes proporcionados por TMDB</strong>
+                    <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+                </div>
+            </section>
+        </div>
+        <div class="site-footer__bottom">
+            <span>© 2026 MaxiCheck</span>
+            <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">Explorar TMDB <span aria-hidden="true">↗</span></a>
+        </div>
+    </footer>
+    <!-- Firebase publica los servicios de cuenta y lista antes de iniciar MaxiCheck. -->
+    <script type="module" src="js/firebase-service.js?v=20260819-6"></script>
 </body>
 </html>
