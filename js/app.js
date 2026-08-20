@@ -5,14 +5,17 @@ const API_BASE_URL = "https://maxicheck-api.maxwell-rcg.workers.dev";
 const form = document.getElementById("movie-form");
 const ageInput = document.getElementById("age");
 const movieInput = document.getElementById("movie");
+const movieAutocomplete = document.getElementById("movie-autocomplete");
 const recommendAgeButton = document.getElementById("recommend-age-button");
 const homeButton = document.getElementById("home-button");
 const searchResults = document.getElementById("search-results");
 const resultToolbar = document.getElementById("result-toolbar");
 const backButton = document.getElementById("back-button");
 const recommendationSummary = document.getElementById("recommendation-summary");
+const recommendationDetailsContent = document.getElementById("recommendation-details-content");
 const result = document.getElementById("result");
 const headerResultsCount = document.getElementById("header-results-count");
+const headerMediaStatus = document.getElementById("header-media-status");
 const headerRecommendation = document.getElementById("header-recommendation");
 const headerCertification = document.getElementById("header-certification");
 const ratingGuide = document.getElementById("rating-guide");
@@ -21,7 +24,10 @@ const savedListCount = document.getElementById("saved-list-count");
 const savedListPanel = document.getElementById("saved-list-panel");
 const savedListClose = document.getElementById("saved-list-close");
 const savedListContent = document.getElementById("saved-list-content");
+const themeControl = document.getElementById("theme-control");
 const themeToggle = document.getElementById("theme-toggle");
+const themeMenu = document.getElementById("theme-menu");
+const themeOptionButtons = Array.from(themeMenu.querySelectorAll("[data-theme-option]"));
 const themeToggleIcon = themeToggle.querySelector("[data-theme-icon]");
 const themeToggleLabel = themeToggle.querySelector("[data-theme-label]");
 const navTopButton = document.getElementById("nav-top");
@@ -50,12 +56,48 @@ const authSignOutButton = document.getElementById("auth-sign-out");
 const authProfileAvatar = document.getElementById("auth-profile-avatar");
 const authProfileName = document.getElementById("auth-profile-name");
 const authProfileEmail = document.getElementById("auth-profile-email");
+const accountProfileForm = document.getElementById("account-profile-form");
+const accountDisplayName = document.getElementById("account-display-name");
+const accountAvatarOptions = Array.from(document.querySelectorAll("[data-avatar-id]"));
+const accountAvatarColors = Array.from(document.querySelectorAll("[data-avatar-color]"));
+const accountSaveProfileButton = document.getElementById("account-save-profile");
+const accountPreferencesForm = document.getElementById("account-preferences-form");
+const accountDefaultAge = document.getElementById("account-default-age");
+const accountPreferredTheme = document.getElementById("account-preferred-theme");
+const accountPreferredMedia = document.getElementById("account-preferred-media");
+const accountOpenSuggestion = document.getElementById("account-open-suggestion");
+const accountSavePreferencesButton = document.getElementById("account-save-preferences");
+const accountPendingCount = document.getElementById("account-pending-count");
+const accountWatchedCount = document.getElementById("account-watched-count");
+const accountTotalCount = document.getElementById("account-total-count");
+const accountOpenListButton = document.getElementById("account-open-list");
+const accountExportListButton = document.getElementById("account-export-list");
+const accountClearListButton = document.getElementById("account-clear-list");
+const accountProvider = document.getElementById("account-provider");
 const authStatus = document.getElementById("auth-status");
 const accountToast = document.getElementById("account-toast");
+const quickPreviewPanel = document.getElementById("quick-preview-panel");
+const quickPreviewRole = document.getElementById("quick-preview-role");
+const quickPreviewDirector = document.getElementById("quick-preview-director");
+const quickPreviewTitle = document.getElementById("quick-preview-title");
+const quickPreviewCountry = document.getElementById("quick-preview-country");
+const quickPreviewRuntimeLabel = document.getElementById("quick-preview-runtime-label");
+const quickPreviewRuntime = document.getElementById("quick-preview-runtime");
+const quickPreviewContextLabel = document.getElementById("quick-preview-context-label");
+const quickPreviewContext = document.getElementById("quick-preview-context");
+const quickPreviewOverview = document.getElementById("quick-preview-overview");
+const quickPreviewStatus = document.getElementById("quick-preview-status");
+const quickPreviewClose = document.getElementById("quick-preview-close");
+const ratingGuidePanel = document.getElementById("rating-guide-panel");
+const ratingGuideClose = document.getElementById("rating-guide-close");
+const recommendationPanel = document.getElementById("recommendation-panel");
+const recommendationClose = document.getElementById("recommendation-close");
 const authService = window.MaxiCheckAuth;
 const listStore = window.MaxiCheckListStore;
+const profileStore = window.MaxiCheckProfileStore;
 if (!authService) throw new Error("El servicio de cuenta no está disponible.");
 if (!listStore) throw new Error("El servicio de Mi lista no está disponible.");
+if (!profileStore) throw new Error("El servicio de perfil no está disponible.");
 let currentResultsCount = 0;
 let openedFromSavedList = false;
 let currentNavigationId = "nav-home";
@@ -78,24 +120,52 @@ let savedRecommendationExcludedKeys = new Set();
 let savedRecommendationsVisibleLimit = SAVED_RECOMMENDATIONS_PAGE_SIZE;
 let savedRecommendationsLoading = false;
 let savedRecommendationsInitialRequest = null;
+const savedListSectionExpanded = {
+    pending: true,
+    watched: true,
+    recommendations: true
+};
 let previousAuthenticatedUserId = null;
 let accountToastTimer = null;
+let quickPreviewRequestVersion = 0;
+let quickPreviewLastTrigger = null;
+const quickPreviewCache = new Map();
+let internalHistoryEntryActive = false;
+let handlingHistoryBack = false;
+let historyBackPending = false;
+let resultsViewActive = false;
+let activeInfoModal = null;
+let activeInfoModalTrigger = null;
+let infoModalOwnsHistoryEntry = false;
+let autocompleteTimer = null;
+let autocompleteController = null;
+let autocompleteResults = [];
+let autocompleteActiveIndex = -1;
+let autocompleteQuery = "";
+const autocompleteCache = new Map();
+let currentAccountProfile = profileStore.get();
+let currentAuthState = { user: null, ready: false, error: null };
+let profileDraftAvatarId = currentAccountProfile.avatarId;
+let profileDraftAvatarColor = currentAccountProfile.avatarColor;
+let preferencesAppliedForUserId = null;
 
 // Cambia el tema sin recargar y mantiene sincronizados icono, texto y accesibilidad.
 function applyTheme(themeId, persist = true) {
     const themeIndex = THEME_OPTIONS.findIndex(function(theme) { return theme.id === themeId; });
     const currentTheme = THEME_OPTIONS[themeIndex >= 0 ? themeIndex : 0];
-    const nextTheme = THEME_OPTIONS[(THEME_OPTIONS.indexOf(currentTheme) + 1) % THEME_OPTIONS.length];
 
     document.documentElement.dataset.theme = currentTheme.id;
     document.documentElement.style.colorScheme = currentTheme.id === "light" ? "light" : "dark";
     themeToggleIcon.textContent = currentTheme.icon;
     themeToggleLabel.textContent = currentTheme.label;
-    themeToggle.setAttribute(
-        "aria-label",
-        `Tema actual: ${currentTheme.label}. Cambiar a ${nextTheme.label}.`
-    );
-    themeToggle.title = `Tema ${currentTheme.label}. Siguiente: ${nextTheme.label}`;
+    themeToggle.setAttribute("aria-label", `Apariencia: ${currentTheme.label}. Abrir selector.`);
+    themeToggle.title = `Apariencia actual: ${currentTheme.label}`;
+
+    themeOptionButtons.forEach(function(button) {
+        const isSelected = button.dataset.themeOption === currentTheme.id;
+        button.setAttribute("aria-checked", String(isSelected));
+        button.classList.toggle("theme-menu__option--active", isSelected);
+    });
 
     if (persist) {
         try {
@@ -106,23 +176,73 @@ function applyTheme(themeId, persist = true) {
     }
 }
 
-// El atributo fue establecido en <head>; aquí se completa el control interactivo.
+function setThemeMenuOpen(isOpen, restoreFocus = false) {
+    themeMenu.hidden = !isOpen;
+    themeToggle.setAttribute("aria-expanded", String(isOpen));
+    themeControl.classList.toggle("theme-control--open", isOpen);
+
+    if (isOpen) {
+        const activeOption = themeMenu.querySelector("[aria-checked='true']") || themeOptionButtons[0];
+        activeOption?.focus();
+    } else if (restoreFocus) {
+        themeToggle.focus({ preventScroll: true });
+    }
+}
+
+// El atributo fue establecido en <head>; aquí se completa el selector directo.
 function initializeThemeToggle() {
     const initialTheme = document.documentElement.dataset.theme;
     applyTheme(initialTheme, false);
 
-    themeToggle.addEventListener("click", function() {
-        const currentIndex = THEME_OPTIONS.findIndex(function(theme) {
-            return theme.id === document.documentElement.dataset.theme;
+    themeToggle.addEventListener("click", function(event) {
+        event.stopPropagation();
+        setThemeMenuOpen(themeMenu.hidden);
+    });
+
+    themeOptionButtons.forEach(function(button) {
+        button.addEventListener("click", function() {
+            const selectedTheme = button.dataset.themeOption;
+            applyTheme(selectedTheme);
+            setThemeMenuOpen(false, true);
+
+            // Una cuenta conectada conserva también la apariencia en Firestore.
+            if (authService.getUser() && profileStore.isReady()) {
+                profileStore.save({ preferredTheme: selectedTheme }).catch(function(error) {
+                    console.warn("No se pudo sincronizar la apariencia del perfil.", error);
+                });
+            }
         });
-        const nextTheme = THEME_OPTIONS[(currentIndex + 1) % THEME_OPTIONS.length];
-        applyTheme(nextTheme.id);
+    });
+
+    themeMenu.addEventListener("keydown", function(event) {
+        const currentIndex = themeOptionButtons.indexOf(document.activeElement);
+        let nextIndex = currentIndex;
+
+        if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % themeOptionButtons.length;
+        else if (event.key === "ArrowUp") nextIndex = (currentIndex - 1 + themeOptionButtons.length) % themeOptionButtons.length;
+        else if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = themeOptionButtons.length - 1;
+        else if (event.key === "Escape") {
+            event.preventDefault();
+            setThemeMenuOpen(false, true);
+            return;
+        } else return;
+
+        event.preventDefault();
+        themeOptionButtons[nextIndex]?.focus();
+    });
+
+    document.addEventListener("click", function(event) {
+        if (!themeMenu.hidden && !themeControl.contains(event.target)) {
+            setThemeMenuOpen(false);
+        }
     });
 }
 
-// El control de apariencia pertenece exclusivamente a la portada limpia de Inicio.
-function showThemeToggleOnHome(isHome) {
-    themeToggle.hidden = !isHome;
+// La apariencia es una preferencia global y permanece disponible en cada vista.
+function showThemeToggleOnHome() {
+    themeControl.hidden = false;
+    setThemeMenuOpen(false);
 }
 
 initializeThemeToggle();
@@ -144,8 +264,99 @@ function getAuthenticationErrorMessage(error) {
     return messages[error?.code] || "No pudimos completar la operación. Comprueba tu conexión e inténtalo otra vez.";
 }
 
-function getUserDisplayName(user) {
-    return user?.displayName || user?.email?.split("@")[0] || "Cuenta MaxiCheck";
+function getUserDisplayName(user, profile = currentAccountProfile) {
+    return profile?.displayName || user?.displayName || user?.email?.split("@")[0] || "Cuenta MaxiCheck";
+}
+
+// Los avatares prediseñados evitan depender de Cloud Storage. La foto de Google
+// se reutiliza únicamente cuando ya forma parte de la sesión autenticada.
+function renderAccountAvatar(element, user, profile, previewName = "") {
+    if (!element) return;
+    const avatarId = profile?.avatarId || "initials";
+    const displayName = previewName || getUserDisplayName(user, profile);
+    const symbols = {
+        movie: "🎬",
+        popcorn: "🍿",
+        star: "★",
+        rocket: "🚀",
+        hero: "⚡"
+    };
+
+    element.replaceChildren();
+    element.dataset.avatarColor = profile?.avatarColor || "blue";
+
+    if (avatarId === "google" && user?.photoURL) {
+        const image = document.createElement("img");
+        image.src = user.photoURL;
+        image.alt = "";
+        image.referrerPolicy = "no-referrer";
+        element.append(image);
+        return;
+    }
+
+    element.textContent = symbols[avatarId] || displayName.trim().charAt(0).toUpperCase() || "M";
+}
+
+function renderProfileEditor(user, profile) {
+    if (!user) return;
+    const displayName = getUserDisplayName(user, profile);
+    profileDraftAvatarId = profile.avatarId === "google" && !user.photoURL ? "initials" : profile.avatarId;
+    profileDraftAvatarColor = profile.avatarColor;
+    accountDisplayName.value = profile.displayName || user.displayName || "";
+
+    accountAvatarOptions.forEach(function(button) {
+        const isGooglePhoto = button.dataset.avatarId === "google";
+        button.disabled = isGooglePhoto && !user.photoURL;
+        button.setAttribute("aria-pressed", String(button.dataset.avatarId === profileDraftAvatarId));
+        if (button.dataset.avatarId === "initials") {
+            button.textContent = displayName.trim().charAt(0).toUpperCase() || "M";
+        } else if (isGooglePhoto) {
+            button.replaceChildren();
+            if (user.photoURL) {
+                const image = document.createElement("img");
+                image.src = user.photoURL;
+                image.alt = "";
+                image.referrerPolicy = "no-referrer";
+                button.append(image);
+            } else {
+                button.textContent = "G";
+            }
+        }
+    });
+
+    accountAvatarColors.forEach(function(button) {
+        button.setAttribute("aria-pressed", String(button.dataset.avatarColor === profileDraftAvatarColor));
+    });
+
+    accountDefaultAge.value = profile.defaultAge || "";
+    accountPreferredTheme.value = profile.preferredTheme;
+    accountPreferredMedia.value = profile.preferredMediaType;
+    accountOpenSuggestion.checked = profile.openSuggestionDirectly;
+}
+
+function applyStoredProfilePreferences(user, profile) {
+    if (!user || preferencesAppliedForUserId === user.uid) return;
+    preferencesAppliedForUserId = user.uid;
+
+    if (!ageInput.value && profile.defaultAge) ageInput.value = String(profile.defaultAge);
+    if (THEME_OPTIONS.some(function(theme) { return theme.id === profile.preferredTheme; })) {
+        applyTheme(profile.preferredTheme);
+    }
+    const advancedMediaType = advancedSearchForm.elements.mediaType;
+    if (advancedMediaType && profile.preferredMediaType) {
+        advancedMediaType.value = profile.preferredMediaType;
+    }
+}
+
+function updateAccountStats() {
+    const savedMovies = getSavedMovies();
+    const watched = savedMovies.filter(function(movie) { return movie.listStatus === "watched"; }).length;
+    const pending = savedMovies.length - watched;
+    accountPendingCount.textContent = String(pending);
+    accountWatchedCount.textContent = String(watched);
+    accountTotalCount.textContent = String(savedMovies.length);
+    accountExportListButton.disabled = savedMovies.length === 0;
+    accountClearListButton.disabled = savedMovies.length === 0;
 }
 
 function showAccountToast(message, state = "success") {
@@ -159,7 +370,14 @@ function showAccountToast(message, state = "success") {
 }
 
 function setAuthControlsBusy(isBusy) {
-    [authGoogleButton, authRegisterButton, authContinueButton, authSignOutButton].forEach(function(button) {
+    [
+        authGoogleButton,
+        authRegisterButton,
+        authContinueButton,
+        authSignOutButton,
+        accountSaveProfileButton,
+        accountSavePreferencesButton
+    ].forEach(function(button) {
         button.disabled = isBusy;
     });
     Array.from(authForm.elements).forEach(function(control) {
@@ -168,6 +386,7 @@ function setAuthControlsBusy(isBusy) {
 }
 
 function updateAccountInterface({ user, ready, error }) {
+    currentAuthState = { user, ready, error };
     authLoading.hidden = ready;
     authSignedOut.hidden = !ready || Boolean(user);
     authSignedIn.hidden = !ready || !user;
@@ -180,6 +399,7 @@ function updateAccountInterface({ user, ready, error }) {
 
     if (!user) {
         accountAvatar.textContent = "♙";
+        accountAvatar.removeAttribute("data-avatar-color");
         accountLabel.textContent = "Entrar";
         accountButton.classList.remove("account-button--signed-in");
         accountButton.setAttribute("aria-label", "Iniciar sesión en MaxiCheck");
@@ -189,16 +409,38 @@ function updateAccountInterface({ user, ready, error }) {
     }
 
     const displayName = getUserDisplayName(user);
-    const initial = displayName.trim().charAt(0).toUpperCase() || "M";
-    accountAvatar.textContent = initial;
-    accountLabel.textContent = "Logueado";
+    renderAccountAvatar(accountAvatar, user, currentAccountProfile);
+    accountLabel.textContent = "Cuenta";
     accountButton.classList.add("account-button--signed-in");
-    accountButton.setAttribute("aria-label", `Logueado como ${displayName}. Abrir cuenta.`);
-    accountButton.title = `Logueado como ${displayName}`;
-    authProfileAvatar.textContent = initial;
+    accountButton.setAttribute("aria-label", `Sesión iniciada como ${displayName}. Abrir cuenta.`);
+    accountButton.title = `Sesión iniciada como ${displayName}`;
+    renderAccountAvatar(authProfileAvatar, user, currentAccountProfile);
     authProfileName.textContent = displayName;
     authProfileEmail.textContent = user.email || "Sesión iniciada";
+    accountProvider.textContent = user.providerIds?.includes("google.com")
+        ? "Google"
+        : user.providerIds?.includes("password") ? "correo y contraseña" : "Firebase";
     authStatus.textContent = "";
+    updateAccountStats();
+}
+
+function updateProfileInterface({ profile, ready, error }) {
+    currentAccountProfile = profile;
+    const user = currentAuthState.user || authService.getUser();
+    if (!ready || !user) return;
+
+    const displayName = getUserDisplayName(user, profile);
+    renderAccountAvatar(accountAvatar, user, profile);
+    renderAccountAvatar(authProfileAvatar, user, profile);
+    authProfileName.textContent = displayName;
+    accountButton.setAttribute("aria-label", `Sesión iniciada como ${displayName}. Abrir cuenta.`);
+    accountButton.title = `Sesión iniciada como ${displayName}`;
+    renderProfileEditor(user, profile);
+    applyStoredProfilePreferences(user, profile);
+
+    if (error && !authPanel.hidden) {
+        authStatus.textContent = "Tu sesión funciona, pero no pudimos leer las preferencias del perfil.";
+    }
 }
 
 function openAuthPanel(message = "") {
@@ -288,6 +530,145 @@ authRegisterButton.addEventListener("click", function() {
     );
 });
 
+accountAvatarOptions.forEach(function(button) {
+    button.addEventListener("click", function() {
+        if (button.disabled) return;
+        profileDraftAvatarId = button.dataset.avatarId;
+        accountAvatarOptions.forEach(function(option) {
+            option.setAttribute("aria-pressed", String(option === button));
+        });
+        renderAccountAvatar(authProfileAvatar, authService.getUser(), {
+            ...currentAccountProfile,
+            avatarId: profileDraftAvatarId,
+            avatarColor: profileDraftAvatarColor
+        }, accountDisplayName.value);
+    });
+});
+
+accountAvatarColors.forEach(function(button) {
+    button.addEventListener("click", function() {
+        profileDraftAvatarColor = button.dataset.avatarColor;
+        accountAvatarColors.forEach(function(option) {
+            option.setAttribute("aria-pressed", String(option === button));
+        });
+        renderAccountAvatar(authProfileAvatar, authService.getUser(), {
+            ...currentAccountProfile,
+            avatarId: profileDraftAvatarId,
+            avatarColor: profileDraftAvatarColor
+        }, accountDisplayName.value);
+    });
+});
+
+accountDisplayName.addEventListener("input", function() {
+    if (profileDraftAvatarId === "initials") {
+        renderAccountAvatar(authProfileAvatar, authService.getUser(), {
+            ...currentAccountProfile,
+            avatarId: profileDraftAvatarId,
+            avatarColor: profileDraftAvatarColor
+        }, accountDisplayName.value);
+    }
+});
+
+accountProfileForm.addEventListener("submit", async function(event) {
+    event.preventDefault();
+    if (!accountProfileForm.reportValidity()) return;
+    accountSaveProfileButton.disabled = true;
+    authStatus.textContent = "Guardando tu perfil…";
+
+    try {
+        await profileStore.save({
+            displayName: accountDisplayName.value.trim(),
+            avatarId: profileDraftAvatarId,
+            avatarColor: profileDraftAvatarColor
+        });
+        authStatus.textContent = "Perfil guardado y sincronizado.";
+        showAccountToast("✓ Perfil actualizado.");
+    } catch (error) {
+        authStatus.textContent = error?.code === "permission-denied"
+            ? "Firestore rechazó el perfil. Publica las reglas actualizadas e inténtalo otra vez."
+            : "No pudimos guardar el perfil. Comprueba tu conexión.";
+    } finally {
+        accountSaveProfileButton.disabled = false;
+    }
+});
+
+accountPreferencesForm.addEventListener("submit", async function(event) {
+    event.preventDefault();
+    if (!accountPreferencesForm.reportValidity()) return;
+    const ageValue = accountDefaultAge.value.trim();
+    const defaultAge = ageValue ? Number(ageValue) : null;
+    accountSavePreferencesButton.disabled = true;
+    authStatus.textContent = "Guardando tus preferencias…";
+
+    try {
+        const profile = await profileStore.save({
+            defaultAge,
+            preferredTheme: accountPreferredTheme.value,
+            preferredMediaType: accountPreferredMedia.value,
+            openSuggestionDirectly: accountOpenSuggestion.checked
+        });
+        if (profile.defaultAge) ageInput.value = String(profile.defaultAge);
+        applyTheme(profile.preferredTheme);
+        if (advancedSearchForm.elements.mediaType) {
+            advancedSearchForm.elements.mediaType.value = profile.preferredMediaType;
+        }
+        authStatus.textContent = "Preferencias guardadas y sincronizadas.";
+        showAccountToast("✓ Preferencias actualizadas.");
+    } catch (error) {
+        authStatus.textContent = error?.code === "permission-denied"
+            ? "Firestore rechazó las preferencias. Publica las reglas actualizadas e inténtalo otra vez."
+            : "No pudimos guardar las preferencias. Comprueba tu conexión.";
+    } finally {
+        accountSavePreferencesButton.disabled = false;
+    }
+});
+
+accountOpenListButton.addEventListener("click", function() {
+    closeAuthPanel();
+    openSavedList();
+});
+
+accountExportListButton.addEventListener("click", function() {
+    const savedMovies = getSavedMovies();
+    if (savedMovies.length === 0) return;
+    const user = authService.getUser();
+    const exportData = {
+        application: "MaxiCheck",
+        exportedAt: new Date().toISOString(),
+        account: user?.email || "",
+        titles: savedMovies
+    };
+    const file = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const downloadUrl = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = `maxicheck-lista-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(downloadUrl);
+    authStatus.textContent = "Se descargó una copia de tu lista.";
+});
+
+accountClearListButton.addEventListener("click", async function() {
+    const savedMovies = getSavedMovies();
+    if (savedMovies.length === 0) return;
+    const confirmed = window.confirm(`Se eliminarán ${savedMovies.length} títulos de Mi lista. ¿Deseas continuar?`);
+    if (!confirmed) return;
+
+    accountClearListButton.disabled = true;
+    authStatus.textContent = "Vaciando Mi lista…";
+    try {
+        await listStore.replaceAll([]);
+        authStatus.textContent = "Mi lista quedó vacía.";
+        showAccountToast("Mi lista quedó vacía.", "neutral");
+    } catch (error) {
+        authStatus.textContent = "No pudimos vaciar Mi lista. Comprueba tu conexión.";
+    } finally {
+        updateAccountStats();
+    }
+});
+
 authContinueButton.addEventListener("click", closeAuthPanel);
 
 authSignOutButton.addEventListener("click", async function() {
@@ -305,6 +686,8 @@ authService.subscribe(function(state) {
 
     if (!state.ready) return;
 
+    if (!state.user) preferencesAppliedForUserId = null;
+
     if (state.user && state.user.uid !== previousAuthenticatedUserId) {
         showAccountToast("✓ Sesión iniciada. Mi lista está sincronizada.");
         if (!authPanel.hidden) {
@@ -317,6 +700,10 @@ authService.subscribe(function(state) {
     }
 
     previousAuthenticatedUserId = state.user?.uid || null;
+});
+
+profileStore.subscribe(function(state) {
+    updateProfileInterface(state);
 });
 
 // TMDB usa nombres de campos distintos para películas y series; MaxiCheck los unifica aquí.
@@ -352,6 +739,534 @@ function getContentTypeLabel(content, short = false) {
     if (normalized.maxicheck_is_documentary) return short ? "DOC" : "Documental";
     return normalized.media_type === "tv" ? (short ? "SERIE" : "Serie de TV") : (short ? "PELÍCULA" : "Película");
 }
+
+// Mantiene el año unido visualmente al nombre en todas las tarjetas y fichas.
+function getContentYear(content) {
+    const normalized = normalizeContent(content);
+    const year = String(normalized.release_date || "").substring(0, 4);
+    return /^\d{4}$/.test(year) ? year : "Año desconocido";
+}
+
+function renderContentTitle(content) {
+    const normalized = normalizeContent(content);
+    return `${escapeHtml(normalized.title)} <span class="content-title-year">(${escapeHtml(getContentYear(normalized))})</span>`;
+}
+
+function setAutocompleteOpen(isOpen) {
+    movieAutocomplete.hidden = !isOpen;
+    movieInput.setAttribute("aria-expanded", String(isOpen));
+    if (!isOpen) {
+        autocompleteActiveIndex = -1;
+        movieInput.removeAttribute("aria-activedescendant");
+    }
+}
+
+function closeMovieAutocomplete(cancelRequest = false) {
+    window.clearTimeout(autocompleteTimer);
+    autocompleteTimer = null;
+    if (cancelRequest) {
+        autocompleteController?.abort();
+        autocompleteController = null;
+    }
+    setAutocompleteOpen(false);
+}
+
+function setAutocompleteActiveIndex(nextIndex) {
+    const options = Array.from(movieAutocomplete.querySelectorAll("[data-autocomplete-action]"));
+    if (options.length === 0) return;
+    autocompleteActiveIndex = (nextIndex + options.length) % options.length;
+
+    options.forEach(function(option, index) {
+        const isActive = index === autocompleteActiveIndex;
+        option.classList.toggle("movie-autocomplete__option--active", isActive);
+        option.setAttribute("aria-selected", String(isActive));
+        if (isActive) {
+            movieInput.setAttribute("aria-activedescendant", option.id);
+            option.scrollIntoView({ block: "nearest" });
+        }
+    });
+}
+
+function renderMovieAutocomplete(results, query) {
+    autocompleteResults = results.slice(0, 6).map(normalizeContent);
+    autocompleteQuery = query;
+    autocompleteActiveIndex = -1;
+
+    if (autocompleteResults.length === 0) {
+        movieAutocomplete.innerHTML = `<p class="movie-autocomplete__status">No encontramos coincidencias.</p>`;
+        setAutocompleteOpen(true);
+        return;
+    }
+
+    movieAutocomplete.innerHTML = `
+        <div class="movie-autocomplete__results">
+            ${autocompleteResults.map(function(content, index) {
+                const poster = content.poster_path
+                    ? `https://image.tmdb.org/t/p/w92${content.poster_path}`
+                    : "";
+                return `
+                    <button id="movie-autocomplete-option-${index}" class="movie-autocomplete__option" type="button"
+                            role="option" aria-selected="false" data-autocomplete-action="select" data-autocomplete-index="${index}">
+                        ${poster
+                            ? `<img src="${poster}" alt="" aria-hidden="true" loading="lazy">`
+                            : `<span class="movie-autocomplete__poster-placeholder" aria-hidden="true">▣</span>`
+                        }
+                        <span class="movie-autocomplete__copy">
+                            <strong>${renderContentTitle(content)}</strong>
+                            <small>${getContentTypeLabel(content)}</small>
+                        </span>
+                    </button>
+                `;
+            }).join("")}
+        </div>
+        <button id="movie-autocomplete-all" class="movie-autocomplete__all" type="button"
+                role="option" aria-selected="false" data-autocomplete-action="all">
+            <span>Ver todos los resultados para “${escapeHtml(query)}”</span><span aria-hidden="true">→</span>
+        </button>
+    `;
+    setAutocompleteOpen(true);
+}
+
+async function loadMovieAutocomplete(query) {
+    const normalizedQuery = query.trim().toLocaleLowerCase("es");
+    if (autocompleteCache.has(normalizedQuery)) {
+        renderMovieAutocomplete(autocompleteCache.get(normalizedQuery), query);
+        return;
+    }
+
+    autocompleteController?.abort();
+    autocompleteController = new AbortController();
+    const currentController = autocompleteController;
+    movieAutocomplete.innerHTML = `<p class="movie-autocomplete__status"><span class="movie-autocomplete__spinner" aria-hidden="true"></span>Buscando títulos…</p>`;
+    setAutocompleteOpen(true);
+
+    try {
+        const response = await fetch(
+            `${API_BASE_URL}/search?query=${encodeURIComponent(query)}`,
+            { signal: currentController.signal }
+        );
+        if (!response.ok) throw new Error("No fue posible cargar sugerencias.");
+        const data = await response.json();
+        if (movieInput.value.trim() !== query || currentController.signal.aborted) return;
+
+        const results = Array.isArray(data.results) ? data.results : [];
+        autocompleteCache.set(normalizedQuery, results);
+        if (autocompleteCache.size > 30) {
+            autocompleteCache.delete(autocompleteCache.keys().next().value);
+        }
+        renderMovieAutocomplete(results, query);
+    } catch (error) {
+        if (error.name !== "AbortError" && movieInput.value.trim() === query) {
+            closeMovieAutocomplete();
+        }
+    } finally {
+        if (autocompleteController === currentController) autocompleteController = null;
+    }
+}
+
+movieInput.addEventListener("input", function() {
+    const query = movieInput.value.trim();
+    window.clearTimeout(autocompleteTimer);
+    autocompleteController?.abort();
+
+    if (query.length < 2) {
+        autocompleteResults = [];
+        autocompleteQuery = "";
+        closeMovieAutocomplete();
+        return;
+    }
+
+    autocompleteTimer = window.setTimeout(function() {
+        loadMovieAutocomplete(query);
+    }, 320);
+});
+
+movieInput.addEventListener("focus", function() {
+    if (autocompleteResults.length > 0 && movieInput.value.trim() === autocompleteQuery) {
+        setAutocompleteOpen(true);
+    }
+});
+
+movieInput.addEventListener("keydown", function(event) {
+    const options = Array.from(movieAutocomplete.querySelectorAll("[data-autocomplete-action]"));
+
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !movieAutocomplete.hidden && options.length > 0) {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        setAutocompleteActiveIndex(autocompleteActiveIndex + direction);
+        return;
+    }
+
+    if (event.key === "Enter" && !movieAutocomplete.hidden && autocompleteActiveIndex >= 0) {
+        event.preventDefault();
+        options[autocompleteActiveIndex]?.click();
+        return;
+    }
+
+    if (event.key === "Escape" && !movieAutocomplete.hidden) {
+        event.preventDefault();
+        closeMovieAutocomplete(true);
+    }
+});
+
+movieAutocomplete.addEventListener("click", async function(event) {
+    const option = event.target.closest("[data-autocomplete-action]");
+    if (!option) return;
+
+    if (option.dataset.autocompleteAction === "select") {
+        const selectedContent = autocompleteResults[Number(option.dataset.autocompleteIndex)];
+        if (!selectedContent) return;
+        movieInput.value = selectedContent.title;
+        closeMovieAutocomplete(true);
+        autocompleteResults = [];
+        autocompleteQuery = "";
+
+        const age = Number(ageInput.value);
+        if (currentAccountProfile.openSuggestionDirectly && Number.isInteger(age) && age >= 1 && age <= 120) {
+            searchResults.innerHTML = "";
+            searchResults.style.display = "none";
+            resultToolbar.hidden = false;
+            backButton.hidden = false;
+            form.classList.add("form--detail");
+            hideSearchResultsCount();
+            result.innerHTML = `<p class="loading-message">Cargando información del título…</p>`;
+            try {
+                await showContentDetails(selectedContent, age, { onBack: resetApplication });
+                scrollToResultStart();
+            } catch (error) {
+                result.innerHTML = `<p class="detail-error">No pudimos cargar este título.</p>`;
+            }
+            return;
+        }
+
+        movieInput.focus();
+        return;
+    }
+
+    movieInput.value = autocompleteQuery;
+    closeMovieAutocomplete(true);
+    form.requestSubmit();
+});
+
+document.addEventListener("click", function(event) {
+    if (!event.target.closest(".form-field--movie")) closeMovieAutocomplete(true);
+});
+
+function getQuickPreviewAttributes(content, extraClass = "") {
+    const normalized = normalizeContent(content);
+    const classes = ["quick-preview-trigger", "interaction-cue", extraClass].filter(Boolean).join(" ");
+    const accessibleLabel = `Ver sinopsis y datos rápidos de ${normalized.title}`;
+    return `class="${classes}" data-preview-id="${normalized.id}" data-media-type="${normalized.media_type}" role="button" tabindex="0" aria-label="${escapeHtml(accessibleLabel)}" title="${escapeHtml(accessibleLabel)}"`;
+}
+
+// Resume los países sin convertir la vista rápida en otra ficha extensa.
+function renderQuickPreviewCountries(details) {
+    let countries = Array.isArray(details.production_countries)
+        ? details.production_countries.filter(function(country) { return country?.name; })
+        : [];
+
+    if (countries.length === 0 && Array.isArray(details.origin_country)) {
+        countries = details.origin_country.map(function(countryCode) {
+            let countryName = countryCode;
+            try {
+                countryName = new Intl.DisplayNames(["es"], { type: "region" }).of(countryCode) || countryCode;
+            } catch (error) {
+                // El código ISO continúa siendo una alternativa válida en navegadores antiguos.
+            }
+            return { iso_3166_1: countryCode, name: countryName };
+        });
+    }
+
+    if (countries.length === 0) return "No disponible";
+
+    return countries.slice(0, 2).map(function(country) {
+        const countryCode = String(country.iso_3166_1 || "").toLowerCase();
+        const flag = /^[a-z]{2}$/.test(countryCode)
+            ? `<img src="https://flagcdn.com/w40/${countryCode}.png" alt="" aria-hidden="true">`
+            : "";
+        return `<span class="quick-preview-country">${flag}<span>${escapeHtml(country.name)}</span></span>`;
+    }).join('<span class="quick-preview-country-separator" aria-hidden="true">·</span>');
+}
+
+function getQuickPreviewRuntime(details, mediaType) {
+    const episodeRuntimes = Array.isArray(details.episode_run_time)
+        ? details.episode_run_time.filter(function(runtime) { return Number(runtime) > 0; })
+        : [];
+    const runtime = mediaType === "tv"
+        ? Number(episodeRuntimes[0] || details.last_episode_to_air?.runtime || details.next_episode_to_air?.runtime)
+        : Number(details.runtime);
+    return formatRuntime(runtime);
+}
+
+function getQuickPreviewContext(details, mediaType) {
+    if (mediaType !== "tv") {
+        return details.belongs_to_collection?.name || "Título independiente";
+    }
+
+    const seasons = Number(details.number_of_seasons) || 0;
+    const episodes = Number(details.number_of_episodes) || 0;
+    const parts = [];
+    if (seasons > 0) parts.push(`${seasons} ${seasons === 1 ? "temporada" : "temporadas"}`);
+    if (episodes > 0) parts.push(`${episodes} ${episodes === 1 ? "episodio" : "episodios"}`);
+    return parts.join(" · ") || "Información no disponible";
+}
+
+// Carga una sinopsis breve y la dirección/creación sin abandonar el contexto actual.
+async function openQuickPreview(trigger) {
+    const movieId = Number(trigger.dataset.previewId);
+    const mediaType = trigger.dataset.mediaType === "tv" ? "tv" : "movie";
+    if (!Number.isInteger(movieId) || movieId <= 0) return;
+
+    const requestVersion = ++quickPreviewRequestVersion;
+    const cacheKey = `${mediaType}:${movieId}`;
+    quickPreviewLastTrigger = trigger;
+    quickPreviewPanel.hidden = false;
+    document.body.classList.add("quick-preview-open");
+    quickPreviewRole.textContent = mediaType === "tv" ? "Creación" : "Dirección";
+    quickPreviewDirector.textContent = "Consultando…";
+    quickPreviewTitle.textContent = "Cargando título…";
+    quickPreviewCountry.textContent = "Consultando…";
+    quickPreviewRuntimeLabel.textContent = mediaType === "tv" ? "Duración por episodio" : "Duración";
+    quickPreviewRuntime.textContent = "Consultando…";
+    quickPreviewContextLabel.textContent = mediaType === "tv" ? "Temporadas y episodios" : "Saga o colección";
+    quickPreviewContext.textContent = "Consultando…";
+    quickPreviewOverview.textContent = "Estamos consultando la información en TMDB.";
+    quickPreviewStatus.textContent = "";
+    quickPreviewClose.focus();
+
+    try {
+        let previewData = quickPreviewCache.get(cacheKey);
+        if (!previewData) {
+            const [detailsResult, creditsResult] = await Promise.allSettled([
+                fetch(`${API_BASE_URL}/${mediaType}/${movieId}/details`).then(async function(response) {
+                    if (!response.ok) throw new Error("No fue posible cargar los detalles.");
+                    return response.json();
+                }),
+                fetch(`${API_BASE_URL}/${mediaType}/${movieId}/credits`).then(async function(response) {
+                    if (!response.ok) throw new Error("No fue posible cargar los créditos.");
+                    return response.json();
+                })
+            ]);
+            if (detailsResult.status !== "fulfilled") throw detailsResult.reason;
+            previewData = {
+                details: normalizeContent(detailsResult.value, mediaType),
+                credits: creditsResult.status === "fulfilled" ? creditsResult.value : {}
+            };
+            quickPreviewCache.set(cacheKey, previewData);
+        }
+
+        if (requestVersion !== quickPreviewRequestVersion || quickPreviewPanel.hidden) return;
+        const { details, credits } = previewData;
+        const creators = mediaType === "tv" && Array.isArray(details.created_by)
+            ? details.created_by
+            : [];
+        const crew = Array.isArray(credits.crew) ? credits.crew : [];
+        const relevantCrew = crew.filter(function(person) {
+            return mediaType === "tv"
+                ? ["Creator", "Director"].includes(person.job)
+                : person.job === "Director";
+        });
+        const people = Array.from(new Map(
+            [...creators, ...relevantCrew]
+                .filter(function(person) { return person?.name; })
+                .map(function(person) { return [person.id || person.name, person.name]; })
+        ).values()).slice(0, 3);
+
+        quickPreviewRole.textContent = mediaType === "tv" ? "Creación" : "Dirección";
+        quickPreviewDirector.textContent = people.length > 0 ? people.join(", ") : "No disponible";
+        quickPreviewTitle.innerHTML = renderContentTitle(details);
+        quickPreviewCountry.innerHTML = renderQuickPreviewCountries(details);
+        quickPreviewRuntimeLabel.textContent = mediaType === "tv" ? "Duración por episodio" : "Duración";
+        quickPreviewRuntime.textContent = getQuickPreviewRuntime(details, mediaType);
+        quickPreviewContextLabel.textContent = mediaType === "tv" ? "Temporadas y episodios" : "Saga o colección";
+        quickPreviewContext.textContent = getQuickPreviewContext(details, mediaType);
+        quickPreviewOverview.textContent = details.overview || "Sinopsis no disponible en TMDB.";
+    } catch (error) {
+        if (requestVersion !== quickPreviewRequestVersion || quickPreviewPanel.hidden) return;
+        quickPreviewDirector.textContent = "No disponible";
+        quickPreviewTitle.textContent = "No pudimos abrir esta vista rápida";
+        quickPreviewCountry.textContent = "No disponible";
+        quickPreviewRuntime.textContent = "No disponible";
+        quickPreviewContext.textContent = "No disponible";
+        quickPreviewOverview.textContent = "La información no está disponible en este momento.";
+        quickPreviewStatus.textContent = "Comprueba tu conexión e inténtalo nuevamente.";
+    }
+}
+
+function closeQuickPreview() {
+    quickPreviewRequestVersion += 1;
+    quickPreviewPanel.hidden = true;
+    document.body.classList.remove("quick-preview-open");
+    if (quickPreviewLastTrigger?.isConnected) quickPreviewLastTrigger.focus?.();
+    quickPreviewLastTrigger = null;
+}
+
+// La captura impide que el clic en la imagen abra también la ficha completa.
+document.addEventListener("click", function(event) {
+    const previewTrigger = event.target.closest(".quick-preview-trigger");
+    if (!previewTrigger) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openQuickPreview(previewTrigger);
+}, true);
+
+document.addEventListener("keydown", function(event) {
+    const previewTrigger = event.target.closest?.(".quick-preview-trigger");
+    if (!previewTrigger || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    openQuickPreview(previewTrigger);
+});
+
+quickPreviewClose.addEventListener("click", closeQuickPreview);
+quickPreviewPanel.addEventListener("click", function(event) {
+    if (event.target === quickPreviewPanel) closeQuickPreview();
+});
+
+// Las dos ayudas informativas usan el mismo comportamiento de modal para
+// mantener el contenido compacto y conservar una navegación móvil predecible.
+function openInfoModal(panel, trigger, closeButton) {
+    if (!panel || !trigger) return;
+
+    if (activeInfoModal && activeInfoModal !== panel) closeInfoModal(true);
+
+    infoModalOwnsHistoryEntry = !internalHistoryEntryActive;
+    ensureInternalHistoryEntry();
+    activeInfoModal = panel;
+    activeInfoModalTrigger = trigger;
+    panel.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    document.body.classList.add("info-modal-open");
+    closeButton?.focus();
+}
+
+function closeInfoModal(fromHistory = false) {
+    if (!activeInfoModal) return;
+
+    const panel = activeInfoModal;
+    const trigger = activeInfoModalTrigger;
+    const ownsHistoryEntry = infoModalOwnsHistoryEntry;
+    panel.hidden = true;
+    trigger?.setAttribute("aria-expanded", "false");
+    document.body.classList.remove("info-modal-open");
+    activeInfoModal = null;
+    activeInfoModalTrigger = null;
+    infoModalOwnsHistoryEntry = false;
+
+    if (trigger?.isConnected) trigger.focus?.({ preventScroll: true });
+
+    // Si el modal se abrió desde Inicio, retira su entrada de protección al
+    // cerrarlo con el botón o el fondo. El evento popstate completa la limpieza.
+    if (!fromHistory && ownsHistoryEntry && internalHistoryEntryActive) {
+        historyBackPending = true;
+        window.history.back();
+    }
+}
+
+ratingGuide.addEventListener("click", function() {
+    openInfoModal(ratingGuidePanel, ratingGuide, ratingGuideClose);
+});
+
+recommendationSummary.addEventListener("click", function() {
+    if (!resultToolbar.hidden) {
+        openInfoModal(recommendationPanel, recommendationSummary, recommendationClose);
+    }
+});
+
+ratingGuideClose.addEventListener("click", function() { closeInfoModal(); });
+recommendationClose.addEventListener("click", function() { closeInfoModal(); });
+
+[ratingGuidePanel, recommendationPanel].forEach(function(panel) {
+    panel.addEventListener("click", function(event) {
+        if (event.target === panel) closeInfoModal();
+    });
+});
+
+// Reproduce una señal breve al aparecer, sin mantener movimiento permanente.
+function triggerInteractionCue(element) {
+    element.classList.remove("interaction-cue");
+    window.requestAnimationFrame(function() {
+        window.requestAnimationFrame(function() {
+            element.classList.add("interaction-cue");
+        });
+    });
+}
+
+document.addEventListener("animationend", function(event) {
+    if (event.animationName === "interaction-border-cue") {
+        event.target.classList.remove("interaction-cue");
+    }
+});
+
+triggerInteractionCue(ratingGuide);
+
+// El historial del navegador recibe una entrada de protección al abrir una ficha.
+// Así, el botón Atrás de Android/iOS restaura la vista interna en vez de salir.
+try {
+    window.history.replaceState({ ...window.history.state, maxicheckView: "base" }, "", window.location.href);
+} catch (error) {
+    // La flecha propia de MaxiCheck continúa funcionando si el historial está restringido.
+}
+
+function ensureInternalHistoryEntry() {
+    if (internalHistoryEntryActive) return;
+    try {
+        window.history.pushState({ ...window.history.state, maxicheckView: "internal" }, "", window.location.href);
+        internalHistoryEntryActive = true;
+    } catch (error) {
+        internalHistoryEntryActive = false;
+    }
+}
+
+function clearInternalHistoryEntry() {
+    if (!internalHistoryEntryActive) return;
+    internalHistoryEntryActive = false;
+    historyBackPending = false;
+    try {
+        window.history.replaceState({ ...window.history.state, maxicheckView: "base" }, "", window.location.href);
+    } catch (error) {
+        // No afecta el contenido visible ni el botón Atrás integrado.
+    }
+}
+
+function activateResultsHistory() {
+    resultsViewActive = true;
+    ensureInternalHistoryEntry();
+}
+
+window.addEventListener("popstate", function() {
+    historyBackPending = false;
+    if (!internalHistoryEntryActive) return;
+    internalHistoryEntryActive = false;
+
+    // Atrás cierra primero cualquiera de los dos modales informativos.
+    // Si ya existía una ficha debajo, repone su entrada de navegación interna.
+    if (activeInfoModal) {
+        const restoreUnderlyingView = !infoModalOwnsHistoryEntry;
+        closeInfoModal(true);
+        if (restoreUnderlyingView) ensureInternalHistoryEntry();
+        return;
+    }
+
+    // La primera pulsación cierra la vista rápida si estaba sobre la ficha.
+    if (!quickPreviewPanel.hidden) {
+        closeQuickPreview();
+        ensureInternalHistoryEntry();
+        return;
+    }
+
+    handlingHistoryBack = true;
+    if (!backButton.hidden || typeof detailBackAction === "function") {
+        performBackNavigation();
+    } else if (resultsViewActive) {
+        resetApplication();
+    }
+    handlingHistoryBack = false;
+
+    // Las vistas de resultados y las fichas anidadas conservan su siguiente retroceso.
+    if (resultsViewActive || !backButton.hidden || typeof detailBackAction === "function") {
+        ensureInternalHistoryEntry();
+    }
+});
 
 function isSameContent(first, second) {
     return getContentKey(first) === getContentKey(second);
@@ -450,9 +1365,6 @@ function renderSavedMovieCard(movie, listStatus) {
     const poster = movie.poster_path
         ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
         : "";
-    const year = movie.release_date
-        ? movie.release_date.substring(0, 4)
-        : "Año desconocido";
     const nextStatus = listStatus === "watched" ? "pending" : "watched";
     const statusLabel = listStatus === "watched" ? "Marcar como pendiente" : "Marcar como vista";
 
@@ -463,7 +1375,7 @@ function renderSavedMovieCard(movie, listStatus) {
                     ? `<img src="${poster}" alt="Póster de ${escapeHtml(movie.title)}" loading="lazy">`
                     : `<span class="saved-movie-placeholder">Sin imagen</span>`
                 }
-                <span><strong>${escapeHtml(movie.title)}</strong><small>${getContentTypeLabel(movie)} · ${year}</small></span>
+                <span><strong>${renderContentTitle(movie)}</strong><small>${getContentTypeLabel(movie)}</small></span>
             </button>
             <div class="saved-movie-actions">
                 <button type="button" class="saved-movie-status" data-status-id="${movie.id}" data-media-type="${movie.media_type}" data-next-status="${nextStatus}">${statusLabel}</button>
@@ -478,7 +1390,6 @@ function renderSavedRecommendationCard(movie) {
     const poster = movie.poster_path
         ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
         : "";
-    const year = movie.release_date ? movie.release_date.substring(0, 4) : "Año desconocido";
     const numericScore = Number(movie.vote_average) || 0;
     const score = numericScore > 0 ? `TMDB ${numericScore.toFixed(1)}/10` : "TMDB sin puntuación";
 
@@ -490,8 +1401,8 @@ function renderSavedRecommendationCard(movie) {
                     : `<span class="saved-movie-placeholder">Sin imagen</span>`
                 }
                 <span>
-                    <strong>${escapeHtml(movie.title)}</strong>
-                    <small>${getContentTypeLabel(movie)} · ${year} · ${escapeHtml(movie.maxicheck_reason || "Recomendada para ti")}</small>
+                    <strong>${renderContentTitle(movie)}</strong>
+                    <small>${getContentTypeLabel(movie)} · ${escapeHtml(movie.maxicheck_reason || "Recomendada para ti")}</small>
                     <span class="saved-recommendation-rating">⭐ ${escapeHtml(score)}</span>
                 </span>
             </button>
@@ -555,19 +1466,23 @@ function renderSavedRecommendationsContent(statusMessage = "") {
 }
 
 function renderSavedSection(title, icon, movies, listStatus, emptyText) {
+    const openAttribute = savedListSectionExpanded[listStatus] ? " open" : "";
     return `
-        <section class="saved-list-section saved-list-section--${listStatus}">
-            <header class="saved-list-section__heading">
-                <span aria-hidden="true">${icon}</span>
+        <details class="saved-list-section saved-list-section--${listStatus}" data-saved-section="${listStatus}"${openAttribute}>
+            <summary class="saved-list-section__heading">
+                <span class="saved-list-section__icon" aria-hidden="true">${icon}</span>
                 <div><h3>${title}</h3><p>${movies.length} ${movies.length === 1 ? "título" : "títulos"}</p></div>
-            </header>
-            ${movies.length > 0
-                ? `<div class="saved-list-grid">${movies.map(function(movie) {
-                    return renderSavedMovieCard(movie, listStatus);
-                }).join("")}</div>`
-                : `<p class="saved-list-section__empty">${emptyText}</p>`
-            }
-        </section>
+                <span class="saved-list-section__toggle" aria-hidden="true">⌄</span>
+            </summary>
+            <div class="saved-list-section__body">
+                ${movies.length > 0
+                    ? `<div class="saved-list-grid">${movies.map(function(movie) {
+                        return renderSavedMovieCard(movie, listStatus);
+                    }).join("")}</div>`
+                    : `<p class="saved-list-section__empty">${emptyText}</p>`
+                }
+            </div>
+        </details>
     `;
 }
 
@@ -701,18 +1616,19 @@ async function renderSavedList() {
     savedListContent.innerHTML = `
         ${renderSavedSection("Pendientes", "⏳", pendingMovies, "pending", "No tienes títulos pendientes.")}
         ${renderSavedSection("Vistas", "✓", watchedMovies, "watched", "Marca un título como visto para moverlo aquí.")}
-        <section class="saved-list-section saved-list-section--recommendations">
-            <header class="saved-list-section__heading">
-                <span aria-hidden="true">✦</span>
+        <details class="saved-list-section saved-list-section--recommendations" data-saved-section="recommendations"${savedListSectionExpanded.recommendations ? " open" : ""}>
+            <summary class="saved-list-section__heading">
+                <span class="saved-list-section__icon" aria-hidden="true">✦</span>
                 <div><h3>Recomendaciones para ti</h3><p>Basadas en tus películas y series vistas</p></div>
-            </header>
-            <div class="saved-recommendations-content">
-                ${watchedMovies.length > 0
-                    ? `<p class="saved-list-section__empty">Preparando recomendaciones…</p>`
-                    : `<p class="saved-list-section__empty">Marca títulos como vistos para recibir recomendaciones.</p>`
-                }
+                <span class="saved-list-section__toggle" aria-hidden="true">⌄</span>
+            </summary>
+            <div class="saved-list-section__body saved-recommendations-content">
+                    ${watchedMovies.length > 0
+                        ? `<p class="saved-list-section__empty">Preparando recomendaciones…</p>`
+                        : `<p class="saved-list-section__empty">Marca títulos como vistos para recibir recomendaciones.</p>`
+                    }
             </div>
-        </section>
+        </details>
     `;
 
     if (watchedMovies.length === 0) return;
@@ -900,6 +1816,14 @@ async function handleSavedListInteraction(event) {
     }
 }
 
+// Conserva qué apartados dejó abiertos el usuario aunque la lista se vuelva a
+// dibujar después de mover, guardar o eliminar un título.
+savedListContent.addEventListener("toggle", function(event) {
+    const section = event.target.closest?.(".saved-list-section[data-saved-section]");
+    if (!section || event.target !== section) return;
+    savedListSectionExpanded[section.dataset.savedSection] = section.open;
+}, true);
+
 savedListContent.addEventListener("click", function(event) {
     handleSavedListInteraction(event).catch(function(error) {
         const existingMessage = savedListContent.querySelector(".saved-list-operation-error");
@@ -914,7 +1838,9 @@ savedListContent.addEventListener("click", function(event) {
 });
 
 document.addEventListener("keydown", function(event) {
-    if (event.key === "Escape" && !savedListPanel.hidden) closeSavedList();
+    if (event.key === "Escape" && !quickPreviewPanel.hidden) closeQuickPreview();
+    else if (event.key === "Escape" && activeInfoModal) closeInfoModal();
+    else if (event.key === "Escape" && !savedListPanel.hidden) closeSavedList();
     else if (event.key === "Escape" && !authPanel.hidden) closeAuthPanel();
 });
 
@@ -922,23 +1848,15 @@ document.addEventListener("keydown", function(event) {
 // Firestore utilizará esta misma suscripción para reflejar cambios de otros equipos.
 listStore.subscribe(function() {
     updateSavedListButton();
+    updateAccountStats();
     if (!savedListPanel.hidden) renderSavedList();
 });
 
 updateSavedListButton();
 
-// Conserva la preferencia de la guía durante la pestaña actual del navegador.
-try {
-    ratingGuide.open = sessionStorage.getItem("maxicheck-rating-guide") === "open";
-    ratingGuide.addEventListener("toggle", function() {
-        sessionStorage.setItem(
-            "maxicheck-rating-guide",
-            ratingGuide.open ? "open" : "closed"
-        );
-    });
-} catch (error) {
-    // La guía sigue funcionando aunque el navegador bloquee el almacenamiento.
-}
+// Ambos diálogos empiezan cerrados y exponen su estado a tecnologías de asistencia.
+ratingGuide.setAttribute("aria-expanded", "false");
+recommendationSummary.setAttribute("aria-expanded", "false");
 
 function showSearchResultsCount(totalResults) {
     currentResultsCount = Number(totalResults) || 0;
@@ -959,6 +1877,15 @@ function hideSearchResultsCount() {
     headerResultsCount.textContent = "";
 }
 
+// Espera a que la ficha nueva esté pintada antes de desplazarla bajo las barras fijas.
+function scrollToResultStart() {
+    window.requestAnimationFrame(function() {
+        window.requestAnimationFrame(function() {
+            result.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    });
+}
+
 // Mientras no hay una película abierta, los accesos externos llevan a la portada de cada servicio.
 function resetExternalMovieLinks() {
     const defaultLinks = [
@@ -977,6 +1904,11 @@ function resetExternalMovieLinks() {
 
 // Limpia los datos de la película anterior al buscar o regresar a la cuadrícula.
 function resetHeaderIndicators() {
+    headerMediaStatus.hidden = true;
+    headerMediaStatus.className = "header-media-status";
+    headerMediaStatus.removeAttribute("title");
+    headerMediaStatus.removeAttribute("aria-label");
+
     headerRecommendation.hidden = true;
     headerRecommendation.textContent = "";
     headerRecommendation.className = "header-recommendation";
@@ -992,6 +1924,19 @@ function resetHeaderIndicators() {
     resetExternalMovieLinks();
 }
 
+function clearRecommendationPanel() {
+    if (activeInfoModal === recommendationPanel) closeInfoModal(true);
+    resultToolbar.hidden = true;
+    resultToolbar.className = "recommendation-details";
+    recommendationPanel.className = "info-modal-panel";
+    recommendationSummary.textContent = "";
+    recommendationSummary.className = "recommendation-summary";
+    recommendationSummary.setAttribute("aria-expanded", "false");
+    recommendationSummary.removeAttribute("title");
+    recommendationSummary.removeAttribute("aria-label");
+    recommendationDetailsContent.textContent = "";
+}
+
 // Guarda los indicadores y enlaces de una ficha para restaurarlos al volver desde una filmografía.
 function captureDetailChrome() {
     function captureElement(element) {
@@ -1005,8 +1950,19 @@ function captureDetailChrome() {
     }
 
     return {
-        resultToolbarHidden: resultToolbar.hidden,
+        resultToolbarState: {
+            hidden: resultToolbar.hidden,
+            className: resultToolbar.className,
+            recommendationPanelClassName: recommendationPanel.className
+        },
         recommendationSummary: captureElement(recommendationSummary),
+        recommendationDetailsContent: captureElement(recommendationDetailsContent),
+        headerMediaStatus: {
+            hidden: headerMediaStatus.hidden,
+            className: headerMediaStatus.className,
+            title: headerMediaStatus.getAttribute("title"),
+            ariaLabel: headerMediaStatus.getAttribute("aria-label")
+        },
         headerRecommendation: captureElement(headerRecommendation),
         headerCertification: captureElement(headerCertification),
         externalLinks: [filmAffinityNavLink, imdbNavLink, rottenTomatoesNavLink, metacriticNavLink].map(function(link) {
@@ -1031,8 +1987,18 @@ function restoreDetailChrome(state) {
         else element.setAttribute("aria-label", elementState.ariaLabel);
     }
 
-    resultToolbar.hidden = state.resultToolbarHidden;
+    resultToolbar.hidden = state.resultToolbarState.hidden;
+    resultToolbar.className = state.resultToolbarState.className;
+    recommendationPanel.className = state.resultToolbarState.recommendationPanelClassName;
     restoreElement(recommendationSummary, state.recommendationSummary);
+    recommendationSummary.setAttribute("aria-expanded", "false");
+    restoreElement(recommendationDetailsContent, state.recommendationDetailsContent);
+    headerMediaStatus.hidden = state.headerMediaStatus.hidden;
+    headerMediaStatus.className = state.headerMediaStatus.className;
+    if (state.headerMediaStatus.title === null) headerMediaStatus.removeAttribute("title");
+    else headerMediaStatus.setAttribute("title", state.headerMediaStatus.title);
+    if (state.headerMediaStatus.ariaLabel === null) headerMediaStatus.removeAttribute("aria-label");
+    else headerMediaStatus.setAttribute("aria-label", state.headerMediaStatus.ariaLabel);
     restoreElement(headerRecommendation, state.headerRecommendation);
     restoreElement(headerCertification, state.headerCertification);
     state.externalLinks.forEach(function(linkState) {
@@ -1047,10 +2013,17 @@ function restoreDetailChrome(state) {
 // Restaura la misma vista limpia que encuentra una persona al abrir MaxiCheck.
 function resetApplication() {
     catalogRequestVersion += 1;
+    closeMovieAutocomplete(true);
+    if (activeInfoModal) closeInfoModal(true);
+    resultsViewActive = false;
+    clearInternalHistoryEntry();
     detailBackAction = null;
     setActiveNavigation("nav-home");
     showThemeToggleOnHome(true);
     form.reset();
+    if (currentAccountProfile.defaultAge) {
+        ageInput.value = String(currentAccountProfile.defaultAge);
+    }
     form.classList.remove("form--detail");
     backButton.hidden = true;
 
@@ -1059,21 +2032,14 @@ function resetApplication() {
     searchResults.onclick = null;
     result.innerHTML = "";
 
-    resultToolbar.hidden = true;
-    recommendationSummary.textContent = "";
-    recommendationSummary.className = "";
+    clearRecommendationPanel();
 
     currentResultsCount = 0;
     openedFromSavedList = false;
     hideSearchResultsCount();
     resetHeaderIndicators();
 
-    ratingGuide.open = false;
-    try {
-        sessionStorage.setItem("maxicheck-rating-guide", "closed");
-    } catch (error) {
-        // El reinicio visual no depende del almacenamiento del navegador.
-    }
+    ratingGuide.setAttribute("aria-expanded", "false");
 
     window.scrollTo({ top: 0, behavior: "smooth" });
     ageInput.focus({ preventScroll: true });
@@ -1085,10 +2051,9 @@ function prepareCatalogView() {
     detailBackAction = null;
     showThemeToggleOnHome(false);
     openedFromSavedList = false;
-    resultToolbar.hidden = true;
+    clearRecommendationPanel();
     backButton.hidden = true;
     form.classList.remove("form--detail");
-    recommendationSummary.textContent = "";
     resetHeaderIndicators();
     result.innerHTML = "";
     searchResults.style.display = "grid";
@@ -1098,6 +2063,7 @@ function prepareCatalogView() {
 async function showCatalog(configuration) {
     const requestVersion = ++catalogRequestVersion;
     prepareCatalogView();
+    activateResultsHistory();
     setActiveNavigation(configuration.navigationId);
     hideSearchResultsCount();
     searchResults.innerHTML = `<p class="catalog-loading">Cargando ${escapeHtml(configuration.title.toLowerCase())}…</p>`;
@@ -1141,7 +2107,6 @@ async function showCatalog(configuration) {
                 const poster = movie.poster_path
                     ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
                     : "";
-                const year = movie.release_date ? movie.release_date.substring(0, 4) : "Año desconocido";
                 const score = movie.vote_average > 0 ? movie.vote_average.toFixed(1) : "—";
 
                 searchResults.innerHTML += `
@@ -1152,8 +2117,8 @@ async function showCatalog(configuration) {
                         }
                         <div class="movie-option-info">
                             <span class="movie-option-type">${getContentTypeLabel(movie, true)}</span>
-                            <span class="movie-option-title">${escapeHtml(movie.title)}</span>
-                            <span class="movie-option-year">${escapeHtml(year)} · ⭐ ${score}</span>
+                            <span class="movie-option-title">${renderContentTitle(movie)}</span>
+                            <span class="movie-option-year">⭐ ${score}</span>
                         </div>
                     </button>
                 `;
@@ -1985,7 +2950,7 @@ function renderExplorerMarkup(bundle) {
             <button type="button" class="explorer-back">← Volver a la ficha</button>
             <header class="explorer-hero" ${backdropUrl ? `style="background-image: linear-gradient(rgba(8,13,24,.35), rgba(8,13,24,.95)), url('${backdropUrl}')"` : ""}>
                 <span>Explorar ${escapeHtml(contentLabel.toLowerCase())}</span>
-                <h2>${escapeHtml(movie.title)}</h2>
+                <h2>${renderContentTitle(movie)}</h2>
                 <p>${escapeHtml(movie.tagline || movie.overview || "Información completa de TMDB")}</p>
             </header>
 
@@ -2037,9 +3002,6 @@ function renderPersonFilmography(person, movies) {
             const posterUrl = movie.poster_path
                 ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
                 : "";
-            const year = movie.release_date
-                ? movie.release_date.substring(0, 4)
-                : "Año desconocido";
             const participation = person.role === "actor"
                 ? movie.character || "Reparto"
                 : person.role === "creator" ? "Creación" : "Dirección";
@@ -2061,8 +3023,8 @@ function renderPersonFilmography(person, movies) {
                             : `<span class="filmography-movie__placeholder">🎞️</span>`
                         }
                         <span class="filmography-movie__info">
-                            <strong>${escapeHtml(movie.title)}</strong>
-                            <small>${getContentTypeLabel(movie)} · ${escapeHtml(year)} · ${escapeHtml(participation)}</small>
+                            <strong>${renderContentTitle(movie)}</strong>
+                            <small>${getContentTypeLabel(movie)} · ${escapeHtml(participation)}</small>
                             <span class="filmography-movie__rating">⭐ ${escapeHtml(score)}</span>
                         </span>
                     </button>
@@ -2158,6 +3120,7 @@ function getMinimumAge(certification) {
 // Consulta las rutas correspondientes y dibuja una ficha común para películas y series.
 async function showContentDetails(selectedMovie, age, options = {}) {
 
+    ensureInternalHistoryEntry();
     showThemeToggleOnHome(false);
     detailBackAction = typeof options.onBack === "function" ? options.onBack : null;
 
@@ -2446,9 +3409,6 @@ async function showContentDetails(selectedMovie, age, options = {}) {
             const relatedPoster = relatedMovie.poster_path
                 ? `https://image.tmdb.org/t/p/w300${relatedMovie.poster_path}`
                 : "";
-            const relatedYear = relatedMovie.release_date
-                ? relatedMovie.release_date.substring(0, 4)
-                : "Año desconocido";
             const relatedScore = relatedMovie.vote_average > 0
                 ? `${relatedMovie.vote_average.toFixed(1)}/10`
                 : "Sin puntuación";
@@ -2464,8 +3424,8 @@ async function showContentDetails(selectedMovie, age, options = {}) {
                         }
                         <span class="related-movie__content">
                             <span class="related-movie__reason">${escapeHtml(relatedMovie.recommendationReason)}</span>
-                            <strong>${escapeHtml(relatedMovie.title)}</strong>
-                            <small>${getContentTypeLabel(relatedMovie)} · ${relatedYear} · ⭐ ${relatedScore}</small>
+                            <strong>${renderContentTitle(relatedMovie)}</strong>
+                            <small>${getContentTypeLabel(relatedMovie)} · ⭐ ${relatedScore}</small>
                         </span>
                     </button>
                     <button type="button"
@@ -2539,6 +3499,7 @@ async function showContentDetails(selectedMovie, age, options = {}) {
     let recommendationClass = "";
     let recommendationState = "unknown";
     let recommendationBadgeText = "Información insuficiente";
+    let recommendationBadgeIcon = "ⓘ";
 
 
     // La recomendación se calcula localmente comparando la edad con el mínimo.
@@ -2555,6 +3516,7 @@ async function showContentDetails(selectedMovie, age, options = {}) {
         recommendationClass = "recommendation-summary--approved";
         recommendationState = "approved";
         recommendationBadgeText = "Apta";
+        recommendationBadgeIcon = "✓";
 
     } else {
 
@@ -2563,24 +3525,40 @@ async function showContentDetails(selectedMovie, age, options = {}) {
         recommendationClass = "recommendation-summary--denied";
         recommendationState = "denied";
         recommendationBadgeText = "No recomendada";
+        recommendationBadgeIcon = "!";
 
     }
 
 
-    // Actualiza la barra superior antes de dibujar el resto de la ficha.
+    // La tarjeta exterior conserva un nombre estable; solo el color comunica el
+    // estado y el diagnóstico completo permanece disponible dentro del modal.
     recommendationSummary.innerHTML = `
-        <span class="recommendation-summary__main">${recommendation}</span>
-        <span class="recommendation-summary__age">
-            <span>Edad consultada: <strong>${age} años</strong></span>
-            <span class="recommendation-summary__separator" aria-hidden="true">•</span>
-            <span>${ageGuidance}</span>
-        </span>
+        <span class="recommendation-summary__main">Recomendación</span>
     `;
     recommendationSummary.className =
         `recommendation-summary ${recommendationClass}`;
+    recommendationSummary.title = recommendation;
+    recommendationSummary.setAttribute(
+        "aria-label",
+        `Abrir recomendación de edad. ${recommendation}`
+    );
+    triggerInteractionCue(recommendationSummary);
+    recommendationDetailsContent.innerHTML = `
+        <strong class="recommendation-details__status">${recommendation}</strong>
+        <span>Edad consultada: <strong>${age} años</strong></span>
+        <span>${ageGuidance}</span>
+    `;
+    resultToolbar.className = `recommendation-details recommendation-details--${recommendationState}`;
+    recommendationPanel.className = `info-modal-panel recommendation-panel--${recommendationState}`;
+    recommendationSummary.setAttribute("aria-expanded", "false");
+    ratingGuide.setAttribute("aria-expanded", "false");
 
-    // En el banner solo se muestran señales compactas; el texto permanece en la ficha.
-    headerRecommendation.textContent = recommendationBadgeText;
+    // El banner reúne ambas señales en una tarjeta neutra y usa el color solo
+    // como acento, para informar sin competir visualmente con el contenido.
+    headerRecommendation.innerHTML = `
+        <span class="header-recommendation__icon" aria-hidden="true">${recommendationBadgeIcon}</span>
+        <span>${recommendationBadgeText}</span>
+    `;
     headerRecommendation.className =
         `header-recommendation header-recommendation--${recommendationState}`;
     headerRecommendation.hidden = false;
@@ -2596,6 +3574,14 @@ async function showContentDetails(selectedMovie, age, options = {}) {
     headerCertification.hidden = false;
     headerCertification.title = `Clasificación ${certification}`;
     headerCertification.setAttribute("aria-label", `Clasificación ${certification}`);
+
+    headerMediaStatus.className = `header-media-status header-media-status--${recommendationState}`;
+    headerMediaStatus.hidden = false;
+    headerMediaStatus.title = `${recommendationBadgeText} · Clasificación ${certification}`;
+    headerMediaStatus.setAttribute(
+        "aria-label",
+        `${recommendationBadgeText}. Clasificación ${certification}.`
+    );
 
     // El menú superior abre la ficha exacta cuando existe o una búsqueda por título y año.
     filmAffinityNavLink.href = filmAffinityUrl;
@@ -2615,18 +3601,19 @@ async function showContentDetails(selectedMovie, age, options = {}) {
     result.innerHTML = `
         <div class="movie-title-row">
             <span class="selected-content-type">${getContentTypeLabel(detailsData, true)}</span>
-            <h2 class="movie-title">${escapeHtml(title)}</h2>
+            <h2 class="movie-title">${escapeHtml(title)} <span class="content-title-year">(${escapeHtml(year)})</span></h2>
             <button type="button" class="copy-movie-title" aria-label="Copiar el título ${escapeHtml(title)}">
                 <span aria-hidden="true">⧉</span>
             </button>
         </div>
 
         <div class="movie-poster-zone">
-            <div class="movie-poster-frame">
+            <div class="movie-poster-frame poster-interaction-cue">
                 ${posterUrl
-                    ? `<img class="movie-poster" src="${posterUrl}" alt="Póster de ${escapeHtml(title)}" width="250">`
-                    : `<div class="movie-poster-placeholder">Póster no disponible</div>`
+                    ? `<img ${getQuickPreviewAttributes(detailsData, "movie-poster")} src="${posterUrl}" alt="Póster de ${escapeHtml(title)}" width="250">`
+                    : `<div ${getQuickPreviewAttributes(detailsData, "movie-poster-placeholder")}>Póster no disponible</div>`
                 }
+                <span class="quick-preview-hint" aria-hidden="true"><span>ⓘ</span> Ver sinopsis</span>
                 <div class="poster-rating poster-rating--${ratingState}"
                      style="--rating-progress: ${ratingProgress}%; --rating-color: ${ratingColor};"
                      role="img"
@@ -3073,10 +4060,10 @@ async function showContentDetails(selectedMovie, age, options = {}) {
             if (!relatedMovie) return;
 
             result.innerHTML = `<p class="loading-message">Cargando recomendación…</p>`;
-            result.scrollIntoView({ behavior: "smooth", block: "start" });
 
             try {
                 await showContentDetails(relatedMovie, age);
+                scrollToResultStart();
             } catch (error) {
                 result.innerHTML = `<p class="detail-error">No pudimos cargar esta recomendación.</p>`;
             }
@@ -3209,9 +4196,6 @@ async function showAgeRecommendations(age) {
             const poster = movie.poster_path
                 ? `https://image.tmdb.org/t/p/w300${movie.poster_path}`
                 : "";
-            const year = movie.release_date
-                ? movie.release_date.substring(0, 4)
-                : "Año desconocido";
             const score = movie.vote_average > 0
                 ? `⭐ ${movie.vote_average.toFixed(1)}`
                 : "Sin puntuación";
@@ -3224,8 +4208,8 @@ async function showAgeRecommendations(age) {
                     }
                     <div class="movie-option-info">
                         <span class="movie-option-type">${getContentTypeLabel(movie, true)}</span>
-                        <span class="movie-option-title">${escapeHtml(movie.title)}</span>
-                        <span class="movie-option-year">${year} · ${score}</span>
+                        <span class="movie-option-title">${renderContentTitle(movie)}</span>
+                        <span class="movie-option-year">${score}</span>
                         <span class="movie-option-certification">${escapeHtml(movie.maxicheck_certification || "Verificada")}</span>
                     </div>
                 </button>
@@ -3327,6 +4311,7 @@ async function showAgeRecommendations(age) {
 }
 
 recommendAgeButton.addEventListener("click", async function() {
+    closeMovieAutocomplete(true);
     catalogRequestVersion += 1;
     setActiveNavigation("nav-home");
     const age = Number(ageInput.value);
@@ -3337,14 +4322,14 @@ recommendAgeButton.addEventListener("click", async function() {
         return;
     }
 
+    activateResultsHistory();
     showThemeToggleOnHome(false);
     detailBackAction = null;
 
     openedFromSavedList = false;
-    resultToolbar.hidden = true;
+    clearRecommendationPanel();
     backButton.hidden = true;
     form.classList.remove("form--detail");
-    recommendationSummary.textContent = "";
     resetHeaderIndicators();
     hideSearchResultsCount();
     result.innerHTML = "";
@@ -3366,16 +4351,17 @@ recommendAgeButton.addEventListener("click", async function() {
 form.addEventListener("submit", async function(event) {
 
     event.preventDefault();
+    closeMovieAutocomplete(true);
     catalogRequestVersion += 1;
+    activateResultsHistory();
     setActiveNavigation("nav-home");
     showThemeToggleOnHome(false);
     detailBackAction = null;
     openedFromSavedList = false;
 
-    resultToolbar.hidden = true;
+    clearRecommendationPanel();
     backButton.hidden = true;
     form.classList.remove("form--detail");
-    recommendationSummary.textContent = "";
     resetHeaderIndicators();
     hideSearchResultsCount();
     searchResults.style.display = "grid";
@@ -3430,14 +4416,7 @@ form.addEventListener("submit", async function(event) {
 
         const title = movieResult.title;
 
-        const releaseDate = movieResult.release_date;
-
         const posterPath = movieResult.poster_path;
-
-        const year = releaseDate
-            ? releaseDate.substring(0, 4)
-            : "Año desconocido";
-
 
         const posterUrl = posterPath
             ? `https://image.tmdb.org/t/p/w300${posterPath}`
@@ -3453,14 +4432,13 @@ form.addEventListener("submit", async function(event) {
             >
                 ${
                     posterUrl
-                        ? `<img src="${posterUrl}" alt="Poster de ${title}">`
+                        ? `<img src="${posterUrl}" alt="Póster de ${escapeHtml(title)}">`
                         : `<div class="no-poster">Sin imagen</div>`
                 }
 
                 <div class="movie-option-info">
                     <span class="movie-option-type">${getContentTypeLabel(movieResult, true)}</span>
-                    <span class="movie-option-title">${title}</span>
-                    <span class="movie-option-year">${year}</span>
+                    <span class="movie-option-title">${renderContentTitle(movieResult)}</span>
                 </div>
             </button>
 `;
@@ -3582,9 +4560,19 @@ form.addEventListener("submit", async function(event) {
                 await showContentDetails(selectedMovie, age);
             } catch (error) {
                 resetHeaderIndicators();
-                recommendationSummary.textContent = "No pudimos cargar todos los detalles.";
+                recommendationSummary.textContent = "Recomendación";
                 recommendationSummary.className =
                     "recommendation-summary recommendation-summary--denied";
+                recommendationSummary.title = "No pudimos cargar todos los detalles.";
+                recommendationSummary.setAttribute(
+                    "aria-label",
+                    "Abrir recomendación de edad. No pudimos cargar todos los detalles."
+                );
+                triggerInteractionCue(recommendationSummary);
+                recommendationDetailsContent.textContent = "Comprueba tu conexión e inténtalo nuevamente.";
+                resultToolbar.className = "recommendation-details recommendation-details--denied";
+                recommendationPanel.className = "info-modal-panel recommendation-panel--denied";
+                recommendationSummary.setAttribute("aria-expanded", "false");
                 result.innerHTML = `
                     <p class="detail-error">
                         Ocurrió un problema al consultar la información. Inténtalo nuevamente.
@@ -3600,8 +4588,7 @@ form.addEventListener("submit", async function(event) {
 
 
 // Restaura exactamente la cuadrícula previa y limpia únicamente la ficha abierta.
-backButton.addEventListener("click", function() {
-
+function performBackNavigation() {
     // Si la ficha se abrió desde una filmografía, vuelve a esa misma persona
     // conservando sus películas cargadas, en lugar de regresar al buscador.
     if (typeof detailBackAction === "function") {
@@ -3614,10 +4601,9 @@ backButton.addEventListener("click", function() {
     const returnToSavedList = openedFromSavedList;
     openedFromSavedList = false;
     result.innerHTML = "";
-    recommendationSummary.textContent = "";
+    clearRecommendationPanel();
     resetHeaderIndicators();
     searchResults.style.display = "grid";
-    resultToolbar.hidden = true;
     backButton.hidden = true;
     form.classList.remove("form--detail");
 
@@ -3628,5 +4614,15 @@ backButton.addEventListener("click", function() {
     } else {
         showSearchResultsCount(currentResultsCount);
     }
+}
 
+backButton.addEventListener("click", function() {
+    if (internalHistoryEntryActive && !handlingHistoryBack) {
+        if (historyBackPending) return;
+        historyBackPending = true;
+        window.history.back();
+        return;
+    }
+
+    performBackNavigation();
 });

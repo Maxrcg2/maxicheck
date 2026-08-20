@@ -31,12 +31,12 @@
 
     <!-- Identidad visual y hoja de estilos principal. -->
     <link rel="icon" type="image/png" href="images/maxicheck-icon.png">
-    <!-- Inter se carga explícitamente para conservar la misma tipografía en todos los dispositivos. -->
+    <!-- Inter mantiene la interfaz uniforme y Manrope distingue los indicadores breves. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;family=Manrope:wght@600;700&amp;display=swap" rel="stylesheet">
     <!-- La versión fuerza al navegador a descargar los estilos después de una actualización. -->
-    <link rel="stylesheet" href="css/styles.css?v=20260819-7">
+    <link rel="stylesheet" href="css/styles.css?v=20260819-20">
 </head>
 <body>
     <!-- Banner global fijo: marca, recomendación y clasificación permanecen visibles. -->
@@ -47,16 +47,18 @@
         <!-- El centro agrupa la respuesta por edad y la clasificación oficial. -->
         <div class="brand__status">
             <span id="header-results-count" class="header-results-count" role="status" aria-live="polite" hidden></span>
-            <span id="header-recommendation" class="header-recommendation" role="status" hidden></span>
-            <span id="header-certification" class="header-certification" hidden></span>
+            <!-- Recomendación y clasificación forman una sola señal visual discreta. -->
+            <div id="header-media-status" class="header-media-status" role="status" aria-live="polite" hidden>
+                <span id="header-recommendation" class="header-recommendation"></span>
+                <span class="header-media-status__divider" aria-hidden="true"></span>
+                <span id="header-certification" class="header-certification"></span>
+            </div>
         </div>
         <div class="brand__actions">
-            <!-- El selector visual solo aparece en Inicio; la cuenta permanece siempre disponible. -->
-            <button id="theme-toggle" class="brand__theme-toggle theme-toggle" type="button">
-                <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">☾</span>
-                <span data-theme-label>Oscuro</span>
+            <!-- Las funciones personales permanecen juntas y visibles durante la navegación. -->
+            <button id="saved-list-button" class="brand__saved-list saved-list-button" type="button" aria-haspopup="dialog" aria-expanded="false">
+                <span aria-hidden="true">♥</span><span>Lista</span><strong id="saved-list-count">0</strong>
             </button>
-            <!-- La cuenta permanece accesible durante toda la navegación. -->
             <button id="account-button" class="brand__account account-button" type="button" aria-haspopup="dialog" aria-expanded="false">
                 <span class="account-button__avatar" data-account-avatar aria-hidden="true">♙</span>
                 <span data-account-label>Entrar</span>
@@ -72,7 +74,6 @@
                 <button id="nav-top" class="catalog-nav__button" type="button"><span aria-hidden="true">★</span><span>Top MC</span></button>
                 <button id="nav-popular" class="catalog-nav__button" type="button"><span aria-hidden="true">🔥</span><span>Populares</span></button>
                 <button id="nav-advanced" class="catalog-nav__button" type="button" aria-haspopup="dialog"><span aria-hidden="true">⌕</span><span>Búsqueda avanzada</span></button>
-                <button id="saved-list-button" class="catalog-nav__button" type="button" aria-haspopup="dialog" aria-expanded="false"><span aria-hidden="true">♥</span><span>Mi lista</span><strong id="saved-list-count">0</strong></button>
             </div>
 
             <span class="catalog-nav__separator" aria-hidden="true"></span>
@@ -100,6 +101,25 @@
             </div>
         </div>
     </nav>
+
+    <!-- Selector flotante de apariencia, separado del contenido del banner. -->
+    <div id="theme-control" class="theme-control">
+        <div id="theme-menu" class="theme-menu" role="menu" aria-label="Seleccionar apariencia" hidden>
+            <button type="button" role="menuitemradio" data-theme-option="light" aria-checked="false">
+                <span class="theme-menu__icon" aria-hidden="true">☀</span><span>Claro</span><span class="theme-menu__check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" role="menuitemradio" data-theme-option="dim" aria-checked="false">
+                <span class="theme-menu__icon" aria-hidden="true">◐</span><span>Penumbra</span><span class="theme-menu__check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" role="menuitemradio" data-theme-option="dark" aria-checked="false">
+                <span class="theme-menu__icon" aria-hidden="true">☾</span><span>Oscuro</span><span class="theme-menu__check" aria-hidden="true">✓</span>
+            </button>
+        </div>
+        <button id="theme-toggle" class="theme-fab" type="button" aria-haspopup="menu" aria-controls="theme-menu" aria-expanded="false">
+            <span class="theme-toggle__icon" data-theme-icon aria-hidden="true">☾</span>
+            <span class="visually-hidden" data-theme-label>Oscuro</span>
+        </button>
+    </div>
 
     <!-- Modal para combinar género, años, puntuación y clasificación. -->
     <div id="advanced-search-panel" class="advanced-search-panel" hidden>
@@ -166,7 +186,7 @@
             <header>
                 <div>
                     <span>Cuenta MaxiCheck</span>
-                    <h2 id="auth-title">Tu lista en todos tus dispositivos</h2>
+                    <h2 id="auth-title">Tu espacio personal</h2>
                 </div>
                 <button id="auth-close" type="button" aria-label="Cerrar acceso a la cuenta">×</button>
             </header>
@@ -197,19 +217,200 @@
             </div>
 
             <div id="auth-signed-in" class="auth-state auth-state--profile" hidden>
-                <span id="auth-profile-avatar" class="auth-profile-avatar" aria-hidden="true">M</span>
-                <div>
-                    <h3 id="auth-profile-name">Cuenta MaxiCheck</h3>
-                    <p id="auth-profile-email"></p>
-                </div>
-                <p class="auth-sync-message"><span aria-hidden="true">✓</span> Mi lista está sincronizada con Firebase.</p>
-                <div class="auth-profile-actions">
-                    <button id="auth-continue" class="auth-continue" type="button">Continuar en MaxiCheck</button>
-                    <button id="auth-sign-out" class="auth-sign-out" type="button">Salir de mi cuenta</button>
-                </div>
+                <!-- Resumen permanente de la cuenta y del estado de sincronización. -->
+                <section class="account-profile-hero">
+                    <span id="auth-profile-avatar" class="auth-profile-avatar" aria-hidden="true">M</span>
+                    <div>
+                        <span class="account-profile-hero__status"><span aria-hidden="true">✓</span> Cuenta sincronizada</span>
+                        <h3 id="auth-profile-name">Cuenta MaxiCheck</h3>
+                        <p id="auth-profile-email"></p>
+                    </div>
+                </section>
+
+                <!-- Cada grupo puede plegarse para que el panel siga siendo cómodo en móvil. -->
+                <details class="account-section" open>
+                    <summary>
+                        <span class="account-section__icon" aria-hidden="true">♙</span>
+                        <span><strong>Perfil</strong><small>Tu nombre y la imagen que te representa.</small></span>
+                        <span class="account-section__chevron" aria-hidden="true">⌄</span>
+                    </summary>
+                    <form id="account-profile-form" class="account-section__body account-form">
+                        <label for="account-display-name">Nombre visible</label>
+                        <input id="account-display-name" name="displayName" type="text" maxlength="60" autocomplete="name" placeholder="¿Cómo quieres que te llamemos?">
+
+                        <fieldset class="account-choice-group">
+                            <legend>Avatar</legend>
+                            <div id="account-avatar-options" class="account-avatar-options">
+                                <button type="button" data-avatar-id="google" aria-label="Usar foto de Google" title="Foto de Google">G</button>
+                                <button type="button" data-avatar-id="initials" aria-label="Usar inicial del nombre" title="Inicial del nombre">M</button>
+                                <button type="button" data-avatar-id="movie" aria-label="Usar claqueta" title="Claqueta">🎬</button>
+                                <button type="button" data-avatar-id="popcorn" aria-label="Usar palomitas" title="Palomitas">🍿</button>
+                                <button type="button" data-avatar-id="star" aria-label="Usar estrella" title="Estrella">★</button>
+                                <button type="button" data-avatar-id="rocket" aria-label="Usar cohete" title="Cohete">🚀</button>
+                                <button type="button" data-avatar-id="hero" aria-label="Usar rayo" title="Rayo">⚡</button>
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="account-choice-group">
+                            <legend>Color del avatar</legend>
+                            <div id="account-avatar-colors" class="account-avatar-colors">
+                                <button type="button" data-avatar-color="blue" aria-label="Azul"></button>
+                                <button type="button" data-avatar-color="violet" aria-label="Violeta"></button>
+                                <button type="button" data-avatar-color="green" aria-label="Verde"></button>
+                                <button type="button" data-avatar-color="amber" aria-label="Ámbar"></button>
+                                <button type="button" data-avatar-color="rose" aria-label="Rosa"></button>
+                            </div>
+                        </fieldset>
+
+                        <button id="account-save-profile" class="account-primary-action" type="submit">Guardar perfil</button>
+                    </form>
+                </details>
+
+                <details class="account-section">
+                    <summary>
+                        <span class="account-section__icon" aria-hidden="true">⚙</span>
+                        <span><strong>Preferencias</strong><small>Personaliza tu punto de partida.</small></span>
+                        <span class="account-section__chevron" aria-hidden="true">⌄</span>
+                    </summary>
+                    <form id="account-preferences-form" class="account-section__body account-form account-preferences-form">
+                        <label for="account-default-age">Edad predeterminada</label>
+                        <input id="account-default-age" name="defaultAge" type="number" min="1" max="120" inputmode="numeric" placeholder="Ej.: 13">
+
+                        <label for="account-preferred-theme">Apariencia</label>
+                        <select id="account-preferred-theme" name="preferredTheme">
+                            <option value="dark">Oscuro</option>
+                            <option value="dim">Penumbra</option>
+                            <option value="light">Claro</option>
+                        </select>
+
+                        <label for="account-preferred-media">Contenido preferido</label>
+                        <select id="account-preferred-media" name="preferredMediaType">
+                            <option value="all">Todo el contenido</option>
+                            <option value="movie">Películas</option>
+                            <option value="tv">Series</option>
+                            <option value="documentary">Documentales</option>
+                        </select>
+
+                        <label class="account-checkbox">
+                            <input id="account-open-suggestion" name="openSuggestionDirectly" type="checkbox">
+                            <span><strong>Abrir sugerencias directamente</strong><small>Al elegir una coincidencia del buscador, abre su ficha sin otro paso.</small></span>
+                        </label>
+
+                        <button id="account-save-preferences" class="account-primary-action" type="submit">Guardar preferencias</button>
+                    </form>
+                </details>
+
+                <details class="account-section" open>
+                    <summary>
+                        <span class="account-section__icon" aria-hidden="true">▦</span>
+                        <span><strong>Actividad</strong><small>Un vistazo rápido a tu colección.</small></span>
+                        <span class="account-section__chevron" aria-hidden="true">⌄</span>
+                    </summary>
+                    <div class="account-section__body">
+                        <div class="account-stats" aria-label="Estadísticas de Mi lista">
+                            <article><strong id="account-pending-count">0</strong><span>Pendientes</span></article>
+                            <article><strong id="account-watched-count">0</strong><span>Vistas</span></article>
+                            <article><strong id="account-total-count">0</strong><span>Total</span></article>
+                        </div>
+                        <div class="account-action-grid">
+                            <button id="account-open-list" class="account-primary-action" type="button">♥ Abrir Mi lista</button>
+                            <button id="account-export-list" class="account-secondary-action" type="button">⇩ Exportar lista</button>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="account-section">
+                    <summary>
+                        <span class="account-section__icon" aria-hidden="true">⌁</span>
+                        <span><strong>Cuenta y datos</strong><small>Sesión, proveedor y controles de tus datos.</small></span>
+                        <span class="account-section__chevron" aria-hidden="true">⌄</span>
+                    </summary>
+                    <div class="account-section__body account-data-actions">
+                        <p>Acceso mediante <strong id="account-provider">Firebase</strong></p>
+                        <button id="account-clear-list" class="account-danger-action" type="button">Vaciar Mi lista</button>
+                        <button id="auth-sign-out" class="auth-sign-out" type="button">Cerrar sesión</button>
+                        <button id="auth-continue" class="auth-continue" type="button">Cerrar panel</button>
+                    </div>
+                </details>
             </div>
 
             <p id="auth-status" class="auth-status" role="status" aria-live="polite"></p>
+        </section>
+    </div>
+
+    <!-- Vista rápida accesible desde cualquier póster sin abandonar la cuadrícula actual. -->
+    <div id="quick-preview-panel" class="quick-preview-panel" hidden>
+        <section class="quick-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-preview-title" aria-describedby="quick-preview-overview">
+            <div class="quick-preview-director">
+                <span id="quick-preview-role">Dirección</span>
+                <strong id="quick-preview-director">Consultando…</strong>
+            </div>
+            <h2 id="quick-preview-title">Cargando título…</h2>
+            <div class="quick-preview-meta">
+                <div>
+                    <span>País de origen</span>
+                    <strong id="quick-preview-country">Consultando…</strong>
+                </div>
+                <div>
+                    <span id="quick-preview-runtime-label">Duración</span>
+                    <strong id="quick-preview-runtime">Consultando…</strong>
+                </div>
+                <div class="quick-preview-meta__wide">
+                    <span id="quick-preview-context-label">Saga o colección</span>
+                    <strong id="quick-preview-context">Consultando…</strong>
+                </div>
+            </div>
+            <div class="quick-preview-synopsis">
+                <h3>Sinopsis</h3>
+                <p id="quick-preview-overview">Estamos consultando la información en TMDB.</p>
+            </div>
+            <p id="quick-preview-status" class="quick-preview-status" role="status" aria-live="polite"></p>
+            <button id="quick-preview-close" class="quick-preview-close" type="button">Cerrar</button>
+        </section>
+    </div>
+
+    <!-- Modal independiente con la referencia completa de clasificaciones. -->
+    <div id="rating-guide-panel" class="info-modal-panel" hidden>
+        <section class="info-modal-dialog rating-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="rating-guide-modal-title">
+            <header class="info-modal-header">
+                <div>
+                    <span>Referencia MaxiCheck</span>
+                    <h2 id="rating-guide-modal-title">Guía de clasificaciones</h2>
+                </div>
+                <button id="rating-guide-close" class="info-modal-close" type="button" aria-label="Cerrar guía de clasificaciones">×</button>
+            </header>
+            <div class="rating-guide__content">
+                <div class="rating-guide__grid">
+                    <article class="rating-card rating-card--g"><strong>G</strong><span>Público general</span><small>Todas las edades</small></article>
+                    <article class="rating-card rating-card--pg"><strong>PG</strong><span>Orientación parental recomendada</span><small>Referencia: desde 8 años</small></article>
+                    <article class="rating-card rating-card--pg13"><strong>PG-13</strong><span>Precaución para menores de 13</span><small>Referencia: desde 13 años</small></article>
+                    <article class="rating-card rating-card--r"><strong>R</strong><span>Menores de 17 requieren acompañamiento adulto</span><small>Referencia: desde 17 años</small></article>
+                    <article class="rating-card rating-card--nc17"><strong>NC-17</strong><span>No admitida para menores de 18</span><small>Referencia: desde 18 años</small></article>
+                </div>
+                <h3 class="rating-guide__subheading">Clasificaciones para series de TV</h3>
+                <div class="rating-guide__grid rating-guide__grid--tv">
+                    <article class="rating-card rating-card--g"><strong>TV-Y / TV-G</strong><span>Público infantil o general</span><small>Todas las edades</small></article>
+                    <article class="rating-card rating-card--pg"><strong>TV-Y7</strong><span>Contenido para mayores de 7</span><small>Referencia: desde 7 años</small></article>
+                    <article class="rating-card rating-card--pg"><strong>TV-PG</strong><span>Orientación parental recomendada</span><small>Referencia: desde 8 años</small></article>
+                    <article class="rating-card rating-card--pg13"><strong>TV-14</strong><span>Puede ser inadecuada para menores de 14</span><small>Referencia: desde 14 años</small></article>
+                    <article class="rating-card rating-card--r"><strong>TV-MA</strong><span>Audiencia adulta</span><small>Referencia: desde 17 años</small></article>
+                </div>
+                <p class="rating-guide__notice">Las edades de MaxiCheck son orientativas. La decisión final corresponde al espectador, padre o tutor.</p>
+            </div>
+        </section>
+    </div>
+
+    <!-- Modal con la edad consultada y la explicación completa del diagnóstico. -->
+    <div id="recommendation-panel" class="info-modal-panel" hidden>
+        <section class="info-modal-dialog recommendation-dialog" role="dialog" aria-modal="true" aria-labelledby="recommendation-modal-title" aria-describedby="recommendation-details-content">
+            <header class="info-modal-header">
+                <div>
+                    <span>Orientación MaxiCheck</span>
+                    <h2 id="recommendation-modal-title">Recomendación de edad</h2>
+                </div>
+                <button id="recommendation-close" class="info-modal-close" type="button" aria-label="Cerrar recomendación de edad">×</button>
+            </header>
+            <div id="recommendation-details-content" class="recommendation-details__content"></div>
         </section>
     </div>
 
@@ -235,57 +436,32 @@
             <div class="form-field--movie">
                 <label for="movie">¿Qué quieres ver?</label>
                 <div class="movie-control-row control-with-action">
-                    <input type="text" id="movie" required>
+                    <input type="text" id="movie" required autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="movie-autocomplete" aria-expanded="false">
                     <button class="check-movie-button" type="submit" title="Comprobar título">
                         <span aria-hidden="true">⌕</span><span>Comprobar</span>
                     </button>
                 </div>
+                <div id="movie-autocomplete" class="movie-autocomplete" role="listbox" aria-label="Sugerencias de títulos" hidden></div>
             </div>
         </form>
 
-        <!-- Guía permanente: diferencia la clasificación oficial de la referencia de MaxiCheck. -->
-        <details id="rating-guide" class="rating-guide">
-            <summary>
+        <!-- Ambos diagnósticos permanecen compactos y abren información en modales. -->
+        <div class="guidance-row">
+            <button id="rating-guide" class="rating-guide rating-guide-trigger" type="button" aria-haspopup="dialog" aria-controls="rating-guide-panel" aria-expanded="false">
                 <span class="rating-guide__heading">
                     <strong>ⓘ Guía de clasificaciones</strong>
                     <small>Consulta cómo MaxiCheck interpreta cada clasificación.</small>
                 </span>
-                <span class="rating-guide__quick" aria-hidden="true">
-                    <span class="rating-pill rating-pill--g">G</span>
-                    <span class="rating-pill rating-pill--pg">PG</span>
-                    <span class="rating-pill rating-pill--pg13">PG-13</span>
-                    <span class="rating-pill rating-pill--r">R</span>
-                    <span class="rating-pill rating-pill--nc17">NC-17</span>
-                </span>
-            </summary>
-            <div class="rating-guide__content">
-                <div class="rating-guide__grid">
-                    <article><strong>G</strong><span>Público general</span><small>Todas las edades</small></article>
-                    <article><strong>PG</strong><span>Orientación parental recomendada</span><small>Referencia: desde 8 años</small></article>
-                    <article><strong>PG-13</strong><span>Precaución para menores de 13</span><small>Referencia: desde 13 años</small></article>
-                    <article><strong>R</strong><span>Menores de 17 requieren acompañamiento adulto</span><small>Referencia: desde 17 años</small></article>
-                    <article><strong>NC-17</strong><span>No admitida para menores de 18</span><small>Referencia: desde 18 años</small></article>
-                </div>
-                <h3 class="rating-guide__subheading">Clasificaciones para series de TV</h3>
-                <div class="rating-guide__grid rating-guide__grid--tv">
-                    <article><strong>TV-Y / TV-G</strong><span>Público infantil o general</span><small>Todas las edades</small></article>
-                    <article><strong>TV-Y7</strong><span>Contenido para mayores de 7</span><small>Referencia: desde 7 años</small></article>
-                    <article><strong>TV-PG</strong><span>Orientación parental recomendada</span><small>Referencia: desde 8 años</small></article>
-                    <article><strong>TV-14</strong><span>Puede ser inadecuada para menores de 14</span><small>Referencia: desde 14 años</small></article>
-                    <article><strong>TV-MA</strong><span>Audiencia adulta</span><small>Referencia: desde 17 años</small></article>
-                </div>
-                <p class="rating-guide__notice">
-                    Las edades de MaxiCheck son orientativas. La decisión final corresponde al espectador, padre o tutor.
-                </p>
+                <span class="guidance-open-icon" aria-hidden="true">↗</span>
+            </button>
+
+            <div id="result-toolbar" class="recommendation-details" hidden>
+                <button id="recommendation-summary" class="recommendation-summary" type="button" aria-haspopup="dialog" aria-controls="recommendation-panel" aria-expanded="false" aria-live="polite"></button>
             </div>
-        </details>
+        </div>
 
         <!-- Coincidencias y ficha seleccionada generadas desde JavaScript. -->
         <section id="search-results" aria-live="polite"></section>
-        <!-- El diagnóstico ocupa su propia línea para mantenerse centrado. -->
-        <div id="result-toolbar" hidden>
-            <p id="recommendation-summary" role="status" aria-live="polite"></p>
-        </div>
         <section id="result" aria-live="polite"></section>
     </main>
     <!-- Franja de créditos y atribución oficial de TMDB. -->
@@ -313,6 +489,6 @@
         </div>
     </footer>
     <!-- Firebase publica los servicios de cuenta y lista antes de iniciar MaxiCheck. -->
-    <script type="module" src="js/firebase-service.js?v=20260819-6"></script>
+    <script type="module" src="js/firebase-service.js?v=20260819-19"></script>
 </body>
 </html>

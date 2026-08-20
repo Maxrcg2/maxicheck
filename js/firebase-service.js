@@ -3,21 +3,35 @@ import { firebaseConfig } from "./firebase-config.js";
 /**
  * Inicializa Firebase antes de cargar la aplicación principal.
  *
- * MaxiCheck expone dos servicios pequeños en window para que app.js no dependa
- * de detalles internos de Firebase: uno administra la sesión y otro sincroniza
- * Mi lista. Si la red o el SDK fallan, la búsqueda de TMDB continúa disponible.
+ * MaxiCheck expone servicios pequeños en window para que app.js no dependa de
+ * detalles internos de Firebase: sesión, perfil y Mi lista. Si la red o el SDK
+ * fallan, la búsqueda de TMDB continúa disponible.
  */
 
 const FIREBASE_VERSION = "12.17.0";
 const LEGACY_STORAGE_KEY = "maxicheck-saved-movies";
 const authListeners = new Set();
 const listListeners = new Set();
+const profileListeners = new Set();
+const DEFAULT_PROFILE = Object.freeze({
+    displayName: "",
+    avatarId: "google",
+    avatarColor: "blue",
+    defaultAge: null,
+    preferredTheme: "dark",
+    preferredMediaType: "all",
+    openSuggestionDirectly: false
+});
 
 let currentUser = null;
 let authReady = false;
 let firebaseError = null;
 let cachedMovies = [];
 let stopFirestoreListener = null;
+let cachedProfile = { ...DEFAULT_PROFILE };
+let profileReady = false;
+let profileError = null;
+let stopProfileListener = null;
 
 function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -41,6 +55,41 @@ function notifyList() {
             listener(snapshot);
         } catch (error) {
             console.error("Un control de Mi lista no pudo actualizarse.", error);
+        }
+    });
+}
+
+function normalizeProfile(profile = {}) {
+    const validAvatars = ["google", "initials", "movie", "popcorn", "star", "rocket", "hero"];
+    const validColors = ["blue", "violet", "green", "amber", "rose"];
+    const validThemes = ["dark", "dim", "light"];
+    const validMediaTypes = ["all", "movie", "tv", "documentary"];
+    const defaultAge = Number(profile.defaultAge);
+
+    return {
+        displayName: String(profile.displayName || "").trim().slice(0, 60),
+        avatarId: validAvatars.includes(profile.avatarId) ? profile.avatarId : DEFAULT_PROFILE.avatarId,
+        avatarColor: validColors.includes(profile.avatarColor) ? profile.avatarColor : DEFAULT_PROFILE.avatarColor,
+        defaultAge: Number.isInteger(defaultAge) && defaultAge >= 1 && defaultAge <= 120 ? defaultAge : null,
+        preferredTheme: validThemes.includes(profile.preferredTheme) ? profile.preferredTheme : DEFAULT_PROFILE.preferredTheme,
+        preferredMediaType: validMediaTypes.includes(profile.preferredMediaType)
+            ? profile.preferredMediaType
+            : DEFAULT_PROFILE.preferredMediaType,
+        openSuggestionDirectly: profile.openSuggestionDirectly === true
+    };
+}
+
+function notifyProfile() {
+    const state = {
+        profile: clone(cachedProfile),
+        ready: profileReady,
+        error: profileError
+    };
+    profileListeners.forEach(function(listener) {
+        try {
+            listener(state);
+        } catch (error) {
+            console.error("Un control de perfil no pudo actualizarse.", error);
         }
     });
 }
@@ -76,7 +125,10 @@ function publicUser(user) {
         uid: user.uid,
         displayName: user.displayName || "",
         email: user.email || "",
-        photoURL: user.photoURL || ""
+        photoURL: user.photoURL || "",
+        providerIds: Array.from(new Set((user.providerData || []).map(function(provider) {
+            return provider.providerId;
+        }).filter(Boolean)))
     });
 }
 
@@ -224,10 +276,68 @@ const listStore = {
     }
 };
 
+const profileStore = {
+    get() {
+        return clone(cachedProfile);
+    },
+
+    isReady() {
+        return profileReady;
+    },
+
+    subscribe(listener) {
+        if (typeof listener !== "function") throw new TypeError("El suscriptor debe ser una función.");
+        profileListeners.add(listener);
+        listener({ profile: clone(cachedProfile), ready: profileReady, error: profileError });
+        return function unsubscribe() {
+            profileListeners.delete(listener);
+        };
+    },
+
+    async save(changes) {
+        const user = requireAuthenticatedUser();
+        const firebase = authService.firebase;
+        if (!firebase) throw firebaseError || new Error("Firestore no está disponible.");
+
+        const previousProfile = cachedProfile;
+        const nextProfile = normalizeProfile({ ...cachedProfile, ...changes });
+        cachedProfile = nextProfile;
+        profileReady = true;
+        profileError = null;
+        notifyProfile();
+
+        try {
+            await firebase.setDoc(
+                firebase.doc(firebase.db, "users", user.uid),
+                { ...nextProfile, updatedAt: firebase.serverTimestamp() },
+                { merge: true }
+            );
+
+            // Firestore es la fuente principal del perfil. El nombre de Auth se
+            // actualiza después para que un fallo de reglas no deje dos estados.
+            if (nextProfile.displayName && nextProfile.displayName !== user.displayName) {
+                try {
+                    await firebase.updateProfile(user, { displayName: nextProfile.displayName });
+                    notifyAuth();
+                } catch (error) {
+                    console.warn("El perfil se guardó, pero Firebase Auth no actualizó el nombre.", error);
+                }
+            }
+            return clone(nextProfile);
+        } catch (error) {
+            cachedProfile = previousProfile;
+            profileError = error;
+            notifyProfile();
+            throw error;
+        }
+    }
+};
+
 // Se sella la interfaz para impedir propiedades accidentales, pero se conserva
 // el espacio interno donde se conectan las funciones del SDK al terminar la carga.
 window.MaxiCheckAuth = Object.seal(authService);
 window.MaxiCheckListStore = Object.freeze(listStore);
+window.MaxiCheckProfileStore = Object.freeze(profileStore);
 
 try {
     const [appModule, authModule, firestoreModule] = await Promise.all([
@@ -247,10 +357,12 @@ try {
         signInWithPopup: authModule.signInWithPopup,
         signInWithEmailAndPassword: authModule.signInWithEmailAndPassword,
         createUserWithEmailAndPassword: authModule.createUserWithEmailAndPassword,
+        updateProfile: authModule.updateProfile,
         signOut: authModule.signOut,
         collection: firestoreModule.collection,
         doc: firestoreModule.doc,
         onSnapshot: firestoreModule.onSnapshot,
+        setDoc: firestoreModule.setDoc,
         serverTimestamp: firestoreModule.serverTimestamp,
         writeBatch: firestoreModule.writeBatch
     };
@@ -260,13 +372,21 @@ try {
             stopFirestoreListener();
             stopFirestoreListener = null;
         }
+        if (stopProfileListener) {
+            stopProfileListener();
+            stopProfileListener = null;
+        }
 
         currentUser = user;
         authReady = true;
         firebaseError = null;
         cachedMovies = [];
+        cachedProfile = { ...DEFAULT_PROFILE };
+        profileReady = !user;
+        profileError = null;
         notifyAuth();
         notifyList();
+        notifyProfile();
 
         if (!user) return;
 
@@ -289,13 +409,35 @@ try {
                 notifyAuth();
             }
         );
+
+        const profileReference = firestoreModule.doc(db, "users", user.uid);
+        stopProfileListener = firestoreModule.onSnapshot(
+            profileReference,
+            function(snapshot) {
+                cachedProfile = normalizeProfile(snapshot.exists() ? snapshot.data() : {
+                    ...DEFAULT_PROFILE,
+                    displayName: user.displayName || ""
+                });
+                profileReady = true;
+                profileError = null;
+                notifyProfile();
+            },
+            function(error) {
+                profileReady = true;
+                profileError = error;
+                notifyProfile();
+            }
+        );
     });
 } catch (error) {
     firebaseError = error;
     authReady = true;
+    profileError = error;
+    profileReady = true;
     console.error("Firebase no pudo iniciarse; las búsquedas continúan disponibles.", error);
     notifyAuth();
+    notifyProfile();
 }
 
 // app.js se carga después de publicar los servicios que utiliza.
-await import("./app.js?v=20260819-6");
+await import("./app.js?v=20260819-19");
