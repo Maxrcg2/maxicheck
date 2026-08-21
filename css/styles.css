@@ -288,19 +288,26 @@ main {
     display: none;
 }
 
+/* El contador de resultados comparte el mismo lenguaje visual que el estado del medio. */
 .header-results-count {
+    display: inline-flex;
     max-width: min(42vw, 320px);
-    min-height: 42px;
+    min-height: 38px;
+    align-items: center;
+    justify-content: center;
     justify-self: center;
-    padding: 9px 16px;
-    border-color: rgba(167, 139, 250, 0.38);
-    border-radius: 999px;
-    background: linear-gradient(145deg, rgba(124, 58, 237, 0.28), rgba(37, 99, 235, 0.2));
-    color: #ede9fe;
-    font-size: 0.86rem;
-    letter-spacing: 0.01em;
+    padding: 5px 10px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035));
+    color: #e5e7eb;
+    font-size: 0.64rem;
+    font-weight: 900;
+    letter-spacing: 0.015em;
     text-align: center;
     white-space: nowrap;
+    box-shadow: 0 7px 20px rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(9px);
 }
 
 .header-recommendation {
@@ -4141,9 +4148,10 @@ form .recommend-age-button:disabled {
 
     .header-results-count {
         max-width: 44vw;
-        min-height: 36px;
-        padding: 7px 10px;
-        font-size: 0.68rem;
+        min-height: 34px;
+        padding: 4px 7px;
+        border-radius: 10px;
+        font-size: 0.54rem;
         line-height: 1.2;
         white-space: normal;
     }
@@ -4985,15 +4993,49 @@ form .age-context-profile {
     gap: 10px;
     padding: 8px 10px;
     border: 1px solid var(--theme-border);
+    border-radius: 12px;
     background: var(--theme-accent-soft);
+    color: var(--theme-heading);
     box-shadow: none;
     text-align: left;
 }
 
+.age-context-profile > span:first-child {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--theme-link) 12%, transparent);
+    color: var(--theme-link);
+}
+
 .age-context-profile > span:last-child { display: grid; gap: 2px; }
-.age-context-profile strong { font-size: 0.72rem; }
+.age-context-profile strong { color: var(--theme-heading); font-size: 0.72rem; }
 .age-context-profile small { color: var(--text-soft); font-size: 0.61rem; font-weight: 500; }
-.age-context-profile:disabled { cursor: not-allowed; opacity: 0.55; }
+.age-context-profile:disabled { cursor: not-allowed; opacity: 0.68; }
+
+/* En modo claro el botón hereda `color: white` de `form button`; se fuerza una
+   superficie y tipografía de alto contraste para que "Usar mi edad" sea legible. */
+html[data-theme="light"] form .age-context-profile {
+    border-color: rgba(37, 99, 235, 0.22);
+    background: linear-gradient(135deg, rgba(239, 246, 255, 0.98), rgba(248, 250, 252, 0.98));
+    color: #172033;
+    box-shadow: 0 8px 20px rgba(51, 65, 85, 0.08);
+}
+
+html[data-theme="light"] form .age-context-profile:hover:not(:disabled) {
+    border-color: rgba(37, 99, 235, 0.36);
+    background: linear-gradient(135deg, rgba(219, 234, 254, 0.98), #ffffff);
+    box-shadow: 0 10px 24px rgba(37, 99, 235, 0.12);
+}
+
+html[data-theme="light"] .age-context-profile strong { color: #172033; }
+html[data-theme="light"] .age-context-profile small { color: #526077; }
+html[data-theme="light"] .age-context-profile > span:first-child {
+    background: rgba(37, 99, 235, 0.11);
+    color: #1d4ed8;
+}
 
 form .age-context-temporary {
     display: grid;
@@ -7293,5 +7335,89 @@ body.info-modal-open .theme-control {
     .theme-fab {
         animation: none;
         transition: none;
+    }
+}
+
+/* Fix definitivo de contraste para "Usar mi edad" en tema claro. */
+html[data-theme="light"] form #use-profile-age.age-context-profile,
+html[data-theme="light"] form #use-profile-age.age-context-profile strong {
+    color: #172033 !important;
+    -webkit-text-fill-color: #172033;
+}
+
+html[data-theme="light"] form #use-profile-age.age-context-profile small {
+    color: #526077 !important;
+    -webkit-text-fill-color: #526077;
+}
+
+/* Footer compacto y anclado al borde inferior cuando la página tiene poco contenido. */
+body {
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+}
+
+main {
+    flex: 0 0 auto;
+}
+
+.site-footer {
+    /* Empuja el footer hacia el fondo del viewport cuando no hay resultados cargados. */
+    margin-top: auto;
+}
+
+@media (min-width: 601px) {
+    .site-footer {
+        min-height: 78px;
+    }
+
+    .site-footer__track {
+        grid-template-columns: minmax(180px, 0.7fr) 1px minmax(420px, 1.8fr);
+        gap: 22px;
+        min-height: 52px;
+        padding: 7px 0;
+    }
+
+    .site-footer__brand-logo {
+        width: min(150px, 100%);
+        height: 38px;
+    }
+
+    .site-footer__divider {
+        height: 38px;
+    }
+
+    .site-footer__credits {
+        gap: 12px;
+    }
+
+    .site-footer__tmdb {
+        flex-basis: 82px;
+        padding: 2px 0;
+    }
+
+    .site-footer__tmdb img {
+        width: 82px;
+    }
+
+    .site-footer__credits strong {
+        font-size: 0.66rem;
+    }
+
+    .site-footer__credits p {
+        margin-top: 1px;
+        font-size: 0.59rem;
+        line-height: 1.25;
+    }
+
+    .site-footer__bottom {
+        min-height: 26px;
+        font-size: 0.58rem;
+    }
+}
+
+@media (max-width: 600px) {
+    .site-footer {
+        margin-top: auto;
     }
 }
