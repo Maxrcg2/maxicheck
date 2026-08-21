@@ -1,0 +1,14 @@
+# Credenciales y variables locales
+.env
+.env.*
+.dev.vars*
+
+# Dependencias
+node_modules/
+
+# Configuración local del editor
+.vscode/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db

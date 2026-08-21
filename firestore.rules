@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function ownsAccount(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // El perfil solo admite los campos que MaxiCheck utiliza en su interfaz.
+    match /users/{userId} {
+      allow read: if ownsAccount(userId);
+      allow create, update: if ownsAccount(userId)
+        && request.resource.data.keys().hasOnly([
+          'displayName',
+          'avatarId',
+          'avatarColor',
+          'defaultAge',
+          'birthDate',
+          'preferredTheme',
+          'preferredMediaType',
+          'openSuggestionDirectly',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+
+      // Cada persona autenticada solo puede consultar y modificar su propia lista.
+      match /savedTitles/{contentId} {
+        allow read, create, update, delete: if ownsAccount(userId);
+      }
+    }
+
+    // Todo documento que no pertenezca a las rutas anteriores queda bloqueado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
